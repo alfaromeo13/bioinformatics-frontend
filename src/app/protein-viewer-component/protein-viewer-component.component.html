@@ -1,0 +1,131 @@
+<div style="text-align: center;"> 
+  <img src="assets/images/Header.png" alt="Download image" style="width:350px; height:auto; padding-top: 20px;"> 
+</div>
+
+<div class="container">  
+    <div class="form-section file is-primary">
+      <label>PDB File:</label>
+      <label class="file-label">
+        <input
+          class="file-input"
+          type="file"
+          accept=".pdb"
+          (change)="onFileChange($event)"
+        />
+        <span class="file-cta has-text-white">
+          <span class="file-icon">
+            <i class="fas fa-upload"></i>
+          </span>
+          <span class="file-label has-text-white">Upload PDB File</span>
+        </span>
+      </label>
+    </div>
+    
+    <div class="form-section" >
+      <label>Protein Chains:</label>
+      <input type="text" [(ngModel)]="form.protein_chains" placeholder="e.g. A,B" [disabled]="pdbFile!=null"/>
+    </div>
+  
+    <div class="form-section">
+      <label>Partner Chains:</label>
+      <input type="text" [(ngModel)]="form.partner_chains" placeholder="e.g. C,D" [disabled]="pdbFile!=null"/>
+    </div>
+  
+    <div class="form-section">
+      <label>Mutations:</label>
+      <input type="text" [(ngModel)]="form.mutations" placeholder="e.g. ARGC59 GLUC60" [disabled]="pdbFile!=null"/>
+    </div>
+  
+    <div class="form-section">
+      <label class="checkbox">
+        <input type="checkbox" [(ngModel)]="form.detect_interface" [disabled]="pdbFile != null"/>
+        Detect Interface
+      </label>
+    </div>
+  
+  
+    <button class="button is-primary" (click)="onGoClick()"  [disabled]="!isGoEnabled()"
+    style="margin-bottom: 30px;">Go</button>
+
+    <!-- TODO: implementiraj logiku za loader 
+    <div style="text-align: center;">
+      <img 
+        src="assets/images/spinner.gif" 
+        style="width:200px; height:auto; border-radius:8px;">
+    </div> 
+    -->
+
+    <div *ngIf="showViewer" class="box mb-4" style="background-color: lightgray;">
+      <div class="columns is-vcentered is-multiline">
+        <!-- Representation Dropdown -->
+        <div class="column is-one-quarter">
+          <label class="label">Representation</label>
+          <div class="control has-icons-left">
+            <div class="select is-fullwidth">
+              <select [(ngModel)]="viewerSettings.representation" (change)="updateRepresentation()">
+                <option value="cartoon">Cartoon</option>
+                <option value="surface">Surface</option>
+                <option value="ball+stick">Ball + Stick</option>
+                <option value="licorice">Licorice</option>
+              </select>
+            </div>
+            <span class="icon is-left">
+              <i class="fas fa-shapes"></i>
+            </span>
+          </div>
+        </div>
+  
+        <!-- Color Scheme Dropdown -->
+        <div class="column is-one-quarter">
+          <label class="label">Color Scheme</label>
+          <div class="control has-icons-left">
+            <div class="select is-fullwidth">
+              <select [(ngModel)]="viewerSettings.color" (change)="updateRepresentation()">
+                <option value="chainname">Chain</option>
+                <option value="element">Element</option>
+                <option value="hydrophobicity">Hydrophobicity</option>
+                <option value="resname">Residue Name</option>
+                <option value="bfactor">B-Factor</option>
+              </select>
+            </div>
+            <span class="icon is-left">
+              <i class="fas fa-palette"></i>
+            </span>
+          </div>
+        </div>
+  
+        <!-- Focus Chain Input -->
+        <div class="column is-one-quarter">
+          <label class="label">Focus Chain</label>
+          <div class="control has-icons-left">
+            <input 
+              class="input" 
+              type="text" 
+              [(ngModel)]="viewerSettings.focusChain" 
+              placeholder="e.g. A" 
+              (keyup.enter)="focusChain()"
+            />
+            <span class="icon is-left">
+              <i class="fas fa-crosshairs"></i>
+            </span>
+          </div>
+        </div>
+  
+        <!-- Download Image Button -->
+        <div class="column is-one-quarter has-text-centered">
+          <label class="label is-invisible">Download</label>
+          <button class="button is-primary is-fullwidth" (click)="takeScreenshot()">
+            <span class="icon">
+              <i class="fas fa-download"></i>
+            </span>
+            <span>Download Image</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  
+    <!-- Viewer Container -->
+    <div *ngIf="showViewer" #viewerSection class="viewer-container">
+      <div id="viewport" style="width:100%; height:600px; border:1px solid #ccc; border-radius:8px;"></div>
+    </div>
+  </div>
