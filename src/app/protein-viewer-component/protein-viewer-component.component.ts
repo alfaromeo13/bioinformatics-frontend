@@ -1,5 +1,6 @@
-import { Component, ElementRef, ViewChild} from '@angular/core';
 import * as NGL from 'ngl';
+import { Component, ElementRef, ViewChild} from '@angular/core';
+import { ProteinViewerComponentService } from './protin-viewer-component.service';
 
 @Component({
   selector: 'app-protein-viewer-component',
@@ -18,6 +19,8 @@ export class ProteinViewerComponentComponent {
   };
 
   pdbFile: File | null = null;
+  resultFiles: string[] = [];
+  selectedFileContent = '';
   showViewer = false;
   stage: any = null;
   comp: any = null;
@@ -27,6 +30,8 @@ export class ProteinViewerComponentComponent {
     color: 'chainname',
     focusChain: ''
   };
+
+  constructor(private proteinService: ProteinViewerComponentService) {}
 
   onFileChange(event: any) {
     const file = event.target.files[0];
@@ -77,21 +82,18 @@ export class ProteinViewerComponentComponent {
         this.stage.autoView();
         this.viewerSection.nativeElement.scrollIntoView({ behavior: 'smooth' });
 
-        // wait for NGL to finish fitting the view
+        // wait for NGL to finish fitting the view (i added some nice animation)
         setTimeout(() => {
           const cam = this.stage.viewer.camera;
           const startZ = cam.position.z;
           const targetZ = startZ * 0.7; // smaller = closer
           const duration = 1000;        // ms, total animation time
           const startTime = performance.now();
-        
           const animateZoom = (time: number) => {
             const progress = Math.min((time - startTime) / duration, 1);
-            // ease-in-out curve
             const eased = 0.5 - Math.cos(progress * Math.PI) / 2;
             cam.position.z = startZ - (startZ - targetZ) * eased;
             this.stage.viewer.requestRender();
-        
             if (progress < 1) requestAnimationFrame(animateZoom);
           };
         
@@ -130,22 +132,66 @@ export class ProteinViewerComponentComponent {
 
   takeScreenshot() {
     if (!this.stage) return;
-    const oldParams = { backgroundColor: this.stage.parameters.backgroundColor };
     this.stage.viewer.requestRender();
     this.stage.setParameters({ backgroundColor: "white" });
     this.stage.makeImage({
-      factor: 2,
+      factor: 1,
       antialias: true,
-      trim: false,
+      trim: true,
       transparent: false,
-    }).then((blob: Blob) => {
-      const link = document.createElement("a");
-      link.href = URL.createObjectURL(blob);
-      link.download = "protein_view.png";
-      link.click();
-      URL.revokeObjectURL(link.href);
-      this.stage.setParameters(oldParams);
-      this.stage.viewer.requestRender();
-    });
+    }).then((blob: Blob) => NGL.download(blob, 'snapshot.png'));
   }  
+
+   /** Upload file + run script */
+   saveData() {
+    this.proteinService.postData(this.form, this.pdbFile).subscribe({
+      next: (res) => console.log('Backend response:', res),
+      error: (err) => console.error('Error:', err)
+    });
+  }
+
+  /** Check job result and get file list */
+  loadResults() {
+    const jobId = localStorage.getItem('proteinJobId');
+    if (!jobId) {
+      this.proteinService['toastr'].warning('No job ID found.');
+      return;
+    }
+
+    this.proteinService.getResultList(jobId).subscribe({
+      next: (res) => {
+        if (res.status === 'completed') {
+          this.resultFiles = res.files;
+          console.log('Result files:', this.resultFiles);
+        } else {
+          this.proteinService['toastr'].info('Job still processing...');
+        }
+      },
+      error: (err) => console.error('Error:', err)
+    });
+  }
+
+  /** Fetch a specific result file’s content */
+  viewFile(filename: string) {
+    const jobId = localStorage.getItem('proteinJobId');
+    if (!jobId) return;
+
+    this.proteinService.getFileContent(jobId, filename).subscribe({
+      next: (res) => {
+        this.selectedFileContent = res.content || '(binary file)';
+        console.log('File content:', res);
+      },
+      error: (err) => console.error('Error:', err)
+    });
+  }
+
+  /** Download the file directly */
+  downloadFile(filename: string) {
+    const jobId = localStorage.getItem('proteinJobId');
+    if (!jobId) return;
+    const link = document.createElement('a');
+    link.href = `${this.proteinService.baseUrl}/get-file/${jobId}/${filename}`;
+    link.download = filename;
+    link.click();
+  }
 }
