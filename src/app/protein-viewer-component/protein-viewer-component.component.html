@@ -33,12 +33,13 @@
   
     <div class="form-section">
       <label>Mutations:</label>
-      <input type="text" [(ngModel)]="form.mutations" placeholder="e.g. ARGC59 GLUC60" [disabled]="pdbFile!=null"/>
+      <input type="text" [(ngModel)]="form.mutations" placeholder="e.g. ARGC59 GLUC60"
+      [disabled]="pdbFile != null || form.detect_interface"/>
     </div>
   
     <div class="form-section">
       <label class="checkbox">
-        <input type="checkbox" [(ngModel)]="form.detect_interface" [disabled]="pdbFile != null"/>
+        <input type="checkbox" [(ngModel)]="form.detect_interface" (click)="onCheckBox()" [disabled]="pdbFile != null"/>
         Detect Interface
       </label>
     </div>

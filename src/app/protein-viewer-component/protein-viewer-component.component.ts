@@ -1,6 +1,7 @@
 import * as NGL from 'ngl';
 import { Component, ElementRef, ViewChild} from '@angular/core';
 import { ProteinViewerComponentService } from './protin-viewer-component.service';
+import { ToastrService } from 'ngx-toastr';
 
 @Component({
   selector: 'app-protein-viewer-component',
@@ -9,7 +10,19 @@ import { ProteinViewerComponentService } from './protin-viewer-component.service
 })
 export class ProteinViewerComponentComponent {
 
+  isLoading = false;
+  pdbFile: File | null = null;
+  resultFiles: string[] = [];
+  selectedFileContent = '';
+  showViewer = false;
+  stage: any = null;
+  comp: any = null;
   @ViewChild('viewerSection') viewerSection!: ElementRef<HTMLDivElement>;
+
+  constructor(
+    private toastr: ToastrService,
+    private proteinService: ProteinViewerComponentService,
+  ) {}
 
   form = {
     protein_chains: '',
@@ -18,20 +31,11 @@ export class ProteinViewerComponentComponent {
     detect_interface: false
   };
 
-  pdbFile: File | null = null;
-  resultFiles: string[] = [];
-  selectedFileContent = '';
-  showViewer = false;
-  stage: any = null;
-  comp: any = null;
-
   viewerSettings = {
     representation: 'cartoon',
     color: 'chainname',
     focusChain: ''
   };
-
-  constructor(private proteinService: ProteinViewerComponentService) {}
 
   onFileChange(event: any) {
     const file = event.target.files[0];
@@ -42,16 +46,39 @@ export class ProteinViewerComponentComponent {
     }
   }
 
-  onGoClick() {
-    if (!this.pdbFile) return;
+  onCheckBox(){
+    this.form.detect_interface = !this.form.detect_interface;
+    this.form.mutations = '';
+  }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const pdbContent = reader.result as string;
-      this.loadInNGL(pdbContent);
-    };
-    reader.readAsText(this.pdbFile);
-    this.pdbFile = null;
+  onGoClick() {
+    const hasManualInput =
+    this.form.protein_chains &&
+    this.form.partner_chains &&
+    (this.form.mutations || this.form.detect_interface);
+  
+    if (!this.pdbFile && !hasManualInput) {
+      this.toastr.info("Please either upload a PDB file OR fill in all fields before running.");
+      return;
+    }
+    
+    this.isLoading = true;
+    this.proteinService.postData(this.form, this.pdbFile).subscribe({
+        next: (res) => {
+          this.isLoading = false;
+          console.log('Backend response:', res);
+          if (res.job_id) localStorage.setItem('proteinJobId', res.job_id);
+          if (this.pdbFile) {
+            const reader = new FileReader();
+            reader.onload = () => this.loadInNGL(reader.result as string);
+            reader.readAsText(this.pdbFile);
+          }
+          this.pdbFile = null;
+        }, error: (err) => {
+          this.isLoading = false;
+          console.error('Error:', err);
+        }
+      });
   }
 
   isGoEnabled(): boolean {
