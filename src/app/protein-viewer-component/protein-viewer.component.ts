@@ -3,6 +3,7 @@ import { Component, ElementRef, ViewChild} from '@angular/core';
 import { ProteinViewerService } from './protin-viewer..service';
 import { ToastrService } from 'ngx-toastr';
 import { LoaderService } from '../services/loader.service';
+import { firstValueFrom } from 'rxjs';
 import Plotly from 'plotly.js-dist-min';
 
 @Component({
@@ -88,12 +89,10 @@ export class ProteinViewerComponent{
   
     const check = async () => {
       try {
-        const res = await this.proteinService.getResultList(jobId).toPromise();
-  
-        if (res.status === 'completed') {
-          // 🧹 Cancel any scheduled future timeouts
-          clearTimeout(timeoutHandle);
-  
+        
+        const res = await firstValueFrom(this.proteinService.getResultList(jobId));
+
+        if (res.status === 'completed') {  
           this.resultFiles = res.files;
           this.toastr.success('Results ready!');
   
@@ -128,7 +127,6 @@ export class ProteinViewerComponent{
     };
     check();
   }
-  
 
   loadAllPdbsFromBackend(jobId: string, pdbFiles: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
