@@ -12,14 +12,13 @@ import Plotly from 'plotly.js-dist-min';
   styleUrl: './protein-viewer.component.css'
 })
 export class ProteinViewerComponent{
-
-  pdbFile: File | null = null;
-  resultFiles: string[] = [];
-  selectedFileContent = '';
-  showViewer = false;
-  stage: any = null;
+  
   comp: any = null;
-
+  stage: any = null;
+  showViewer = false;
+  selectedFileContent = '';
+  resultFiles: string[] = [];
+  pdbFile: File | null = null;
   @ViewChild('viewerSection') viewerSection!: ElementRef<HTMLDivElement>;
 
   constructor(
@@ -93,9 +92,12 @@ export class ProteinViewerComponent{
         const res = await firstValueFrom(this.proteinService.getResultList(jobId));
 
         if (res.status === 'completed') {  
+
           this.resultFiles = res.files;
           this.toastr.success('Results ready!');
-  
+          
+          clearTimeout(timeoutHandle);
+
           const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
           const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
   
