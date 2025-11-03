@@ -1,0 +1,56 @@
+import { Injectable } from '@angular/core';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { ToastrService } from 'ngx-toastr';
+import { Observable, throwError } from 'rxjs';
+import { catchError, tap } from 'rxjs/operators';
+
+@Injectable({ providedIn: 'root' })
+export class ProteinViewerService {
+  
+  public baseUrl = 'http://localhost:5000';
+
+  constructor(
+    private http: HttpClient,
+    private toastr: ToastrService
+  ) {}
+
+  /** Run the backend script */
+  postData(form: any, pdbFile: File): Observable<any> {
+    const formData = new FormData();
+    formData.append('pdb_file', pdbFile);
+    formData.append('protein_chains', form.protein_chains || '');
+    formData.append('partner_chains', form.partner_chains || '');
+    formData.append('mutations', form.mutations || '');
+    formData.append('detect_interface', String(form.detect_interface));
+
+    return this.http.post(`${this.baseUrl}/run-script`, formData).pipe(
+      tap(() => this.toastr.success('Processing started!')),
+      catchError((error) => this.handleError(error))
+    );
+  }
+
+  /** Check result (no job ID now) */
+  getResultList(jobId: string): Observable<any> {
+    return this.http.get(`${this.baseUrl}/check-result/${jobId}`).pipe(
+      catchError((error) => this.handleError(error))
+    );
+  }  
+
+  /** Retrieve file content */
+  getFileContent(jobId: string, filename: string): Observable<any> {
+    return this.http.get(`${this.baseUrl}/get-file/${jobId}/${filename}`).pipe(
+      catchError((error) => this.handleError(error))
+    );
+  }
+
+  /** Common error handler */
+  private handleError(error: HttpErrorResponse) {
+    queueMicrotask(() => {
+      if (error.status === 400) this.toastr.warning('Please fill in all required fields');
+      else if (error.status === 500) this.toastr.error('Server error (500)');
+      else if (error.status === 202) this.toastr.info('Result still processing...');
+      else this.toastr.error('Unexpected error occurred');
+    });
+    return throwError(() => error);
+  }
+}

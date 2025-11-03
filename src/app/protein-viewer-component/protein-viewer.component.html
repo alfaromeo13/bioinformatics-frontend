@@ -1,10 +1,14 @@
+<app-spinner-component></app-spinner-component>
+
 <div style="text-align: center;"> 
   <img src="assets/images/Header.png" alt="Download image" style="width:350px; height:auto; padding-top: 20px;"> 
 </div>
 
 <div class="container">  
-    <div class="form-section file is-primary">
-      <label>PDB File:</label>
+  
+  <div class="form-section">
+    <label class="label">PDB File:</label>
+    <div class="file has-name is-primary">
       <label class="file-label">
         <input
           class="file-input"
@@ -12,49 +16,45 @@
           accept=".pdb"
           (change)="onFileChange($event)"
         />
-        <span class="file-cta has-text-white">
-          <span class="file-icon">
+        <span class="file-cta">
+          <span class="file-icon has-text-white">
             <i class="fas fa-upload"></i>
           </span>
-          <span class="file-label has-text-white">Upload PDB File</span>
+          <span class="file-label has-text-white">Choose a PDB File...</span>
+        </span>
+        <span class="file-name" *ngIf="pdbFile">
+          {{ pdbFile.name }}
         </span>
       </label>
     </div>
-    
+  </div>
+  
     <div class="form-section" >
       <label>Protein Chains:</label>
-      <input type="text" [(ngModel)]="form.protein_chains" placeholder="e.g. A,B" [disabled]="pdbFile!=null"/>
+      <input type="text" [(ngModel)]="form.protein_chains" placeholder="e.g. A,B"/>
     </div>
   
     <div class="form-section">
       <label>Partner Chains:</label>
-      <input type="text" [(ngModel)]="form.partner_chains" placeholder="e.g. C,D" [disabled]="pdbFile!=null"/>
+      <input type="text" [(ngModel)]="form.partner_chains" placeholder="e.g. C,D"/>
     </div>
   
     <div class="form-section">
       <label>Mutations:</label>
-      <input type="text" [(ngModel)]="form.mutations" placeholder="e.g. ARGC59 GLUC60"
-      [disabled]="pdbFile != null || form.detect_interface"/>
+      <input type="text" placeholder="e.g. ARGC59 GLUC60"
+      [(ngModel)]="form.mutations" 
+      [disabled]="form.detect_interface"/>
     </div>
   
     <div class="form-section">
       <label class="checkbox">
-        <input type="checkbox" [(ngModel)]="form.detect_interface" (click)="onCheckBox()" [disabled]="pdbFile != null"/>
+        <input type="checkbox" [(ngModel)]="form.detect_interface" (change)="onCheckBox()"/>
         Detect Interface
       </label>
     </div>
   
-  
     <button class="button is-primary" (click)="onGoClick()"  [disabled]="!isGoEnabled()"
     style="margin-bottom: 30px;">Go</button>
-
-    <!-- TODO: implementiraj logiku za loader 
-    <div style="text-align: center;">
-      <img 
-        src="assets/images/spinner.gif" 
-        style="width:200px; height:auto; border-radius:8px;">
-    </div> 
-    -->
 
     <div *ngIf="showViewer" class="box mb-4" style="background-color: lightgray;">
       <div class="columns is-vcentered is-multiline">
@@ -68,6 +68,14 @@
                 <option value="surface">Surface</option>
                 <option value="ball+stick">Ball + Stick</option>
                 <option value="licorice">Licorice</option>
+                <option value="ribbon">Ribbon</option>
+                <option value="spacefill">Spacefill</option>
+                <option value="backbone">Backbone</option>
+                <option value="axes">Axes</option>
+                <option value="hyperball">Hyperball</option>
+                <option value="distance">Distance</option>
+                <option value="contact">Contact</option>
+                <option value="label">Label</option>
               </select>
             </div>
             <span class="icon is-left">
@@ -87,6 +95,9 @@
                 <option value="hydrophobicity">Hydrophobicity</option>
                 <option value="resname">Residue Name</option>
                 <option value="bfactor">B-Factor</option>
+                <option value="uniform">Uniform</option>
+                <option value="hydrophobicity">Hydrophobicity</option>
+                <option value="chainid">Chainid</option>
               </select>
             </div>
             <span class="icon is-left">
@@ -129,4 +140,13 @@
     <div *ngIf="showViewer" #viewerSection class="viewer-container">
       <div id="viewport" style="width:100%; height:600px; border:1px solid #ccc; border-radius:8px;"></div>
     </div>
+    
+    <!-- Heatmap wit the results -->
+    <div *ngIf="resultFiles.length && showViewer" class="box" style="margin-top: 30px; text-align: center;">
+      <h3 class="title is-5">Energy Heatmap</h3>
+      <div id="heatmapDiv"
+          style="display: inline-block; margin: auto; width: 90%; max-width: 850px; height: 450px; border: 1px solid #333; border-radius: 8px; padding: 8px; background: #fafafa;">
+      </div>
+    </div>
+
   </div>
