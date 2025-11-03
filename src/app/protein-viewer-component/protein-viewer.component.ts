@@ -69,7 +69,6 @@ export class ProteinViewerComponent{
     this.proteinService.postData(this.form, this.pdbFile).subscribe({
       next: (res) => {
         this.pdbFile = null;
-        this.toastr.info(res.message || 'Job started.');
         if (res.job_id) {
           localStorage.setItem('proteinJobId', res.job_id);
           this.waitForResults(res.job_id); // Start polling every 10 seconds to check result
@@ -93,10 +92,9 @@ export class ProteinViewerComponent{
 
         if (res.status === 'completed') {  
 
+          clearTimeout(timeoutHandle); 
           this.resultFiles = res.files;
           this.toastr.success('Results ready!');
-          
-          clearTimeout(timeoutHandle);
 
           const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
           const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
@@ -117,7 +115,7 @@ export class ProteinViewerComponent{
           return;
         }
   
-        // ⏱️ Schedule next check
+        // Schedule next check
         timeoutHandle = setTimeout(check, interval);
   
       } catch (err: any) {
