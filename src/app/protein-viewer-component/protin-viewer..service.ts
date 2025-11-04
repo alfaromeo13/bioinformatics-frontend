@@ -6,13 +6,13 @@ import { catchError, tap } from 'rxjs/operators';
 
 @Injectable({ providedIn: 'root' })
 export class ProteinViewerService {
-  
+
   public baseUrl = 'http://localhost:5000';
 
   constructor(
     private http: HttpClient,
     private toastr: ToastrService
-  ) {}
+  ) { }
 
   /** Run the backend script */
   postData(form: any, pdbFile: File): Observable<any> {
@@ -34,13 +34,13 @@ export class ProteinViewerService {
     return this.http.get(`${this.baseUrl}/check-result/${jobId}`).pipe(
       catchError((error) => this.handleError(error))
     );
-  }  
+  }
 
   /** Retrieve file content */
-  getFileContent(jobId: string, filename: string): Observable<any> {
-    return this.http.get(`${this.baseUrl}/get-file/${jobId}/${filename}`).pipe(
-      catchError((error) => this.handleError(error))
-    );
+  getFileContent(jobId: string, filename: string): Observable<string> {
+    return this.http.get(`${this.baseUrl}/get-file/${jobId}/${filename}`, {
+      responseType: 'text'
+    });
   }
 
   /** Common error handler */
