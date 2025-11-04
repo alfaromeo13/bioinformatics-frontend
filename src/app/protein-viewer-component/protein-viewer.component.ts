@@ -154,7 +154,7 @@ export class ProteinViewerComponent {
           block: 'start',
           inline: 'nearest'
         });
-      }); 
+      });
     }
   }
 
@@ -403,7 +403,6 @@ export class ProteinViewerComponent {
     requestAnimationFrame(animate);
   }
 
-
   takeScreenshot() {
     if (!this.stage) return;
     this.stage.viewer.requestRender();
@@ -414,21 +413,6 @@ export class ProteinViewerComponent {
       trim: true,
       transparent: false,
     }).then((blob: Blob) => NGL.download(blob, 'snapshot.png'));
-  }
-
-  /** Fetch extracted results **/
-  loadResults(jobId: string) {
-    this.proteinService.getResultList(jobId).subscribe({
-      next: (res) => {
-        if (res.status === 'completed') {
-          this.resultFiles = res.files;
-          this.toastr.success('Results ready!');
-        } else {
-          this.toastr.info('Job still processing...');
-        }
-      },
-      error: (err) => console.error(err)
-    });
   }
 
   /** View file content */
@@ -450,8 +434,6 @@ export class ProteinViewerComponent {
     link.download = filename;
     link.click();
   }
-
-
 
   // DEMOOOOOO ISPOD
 
