@@ -23,7 +23,7 @@ import { SpinnerComponent } from './spinner-component/spinner.component';
     BrowserAnimationsModule,
     ToastrModule.forRoot({
       positionClass: 'toast-top-right',
-      timeOut: 3000,
+      timeOut: 3500,
       preventDuplicates: true,
     }),
   ],

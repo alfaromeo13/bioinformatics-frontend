@@ -19,6 +19,7 @@ export class ProteinViewerComponent {
   selectedFileContent = '';
   resultFiles: string[] = [];
   pdbFile: File | null = null;
+  availableChains: string[] = [];
   @ViewChild('viewerSection') viewerSection!: ElementRef<HTMLDivElement>;
 
   constructor(
@@ -54,16 +55,28 @@ export class ProteinViewerComponent {
     this.form.mutations = '';
   }
 
-  isGoEnabled(): boolean {
-    return !!this.pdbFile;
-  }
-
   onGoClick() {
     if (!this.pdbFile) {
-      this.toastr.warning('Please upload a PDB file first.');
+      this.toastr.warning('Please upload a PDB file.');
       return;
     }
 
+    if (!this.form.protein_chains.trim()) {
+      this.toastr.warning('Protein Chains must be entered.');
+      return;
+    }
+
+    if (!this.form.partner_chains.trim()) {
+      this.toastr.warning('Partner Chains must be entered.');
+      return;
+    }
+
+    if (!this.form.mutations.trim() && !this.form.detect_interface) {
+      this.toastr.warning('Please provide Mutations or enable Detect Interface.');
+      return;
+    }
+
+    // --- If all good, proceed ---
     this.loader.setLoading(true);
 
     this.proteinService.postData(this.form, this.pdbFile).subscribe({
@@ -71,11 +84,13 @@ export class ProteinViewerComponent {
         this.pdbFile = null;
         if (res.job_id) {
           localStorage.setItem('proteinJobId', res.job_id);
-          this.waitForResults(res.job_id); // Start polling every 10 seconds to check result
+          this.waitForResults(res.job_id);
         }
-      }, error: (err) => {
+      },
+      error: (err) => {
         this.loader.setLoading(false);
         console.error('Error:', err);
+        this.toastr.error('Failed to start job.');
       }
     });
   }
@@ -131,7 +146,6 @@ export class ProteinViewerComponent {
   private getAvailableChains(): string[] {
     if (!this.stage) return [];
     const names = new Set<string>();
-
     this.stage.compList.forEach((comp: any) => {
       const structure = comp.structure;
       structure.eachChain((chainProxy: any) => {
@@ -140,10 +154,7 @@ export class ProteinViewerComponent {
         }
       });
     });
-
-    const arr = Array.from(names);
-    console.log('Detected real chain IDs:', arr);
-    return arr;
+    return Array.from(names);
   }
 
   private scrollToViewer(): void {
@@ -167,6 +178,8 @@ export class ProteinViewerComponent {
         this.stage = new NGL.Stage("viewport", { backgroundColor: "white" });
         window.addEventListener("resize", () => this.stage.handleResize(), false);
       } else {
+        this.availableChains = [];
+        this.viewerSettings.focusChain = '';
         this.stage.removeAllComponents();
       }
 
@@ -195,7 +208,7 @@ export class ProteinViewerComponent {
                   setTimeout(() => {
                     this.stage.autoView();
                     this.animateCameraZoom(0.7, 1000);
-
+                    this.availableChains = this.getAvailableChains();
                     this.stage.viewer.signals.rendered.addOnce(() => {
                       this.loader.setLoading(false);
                       this.scrollToViewer(); // scroll to the viewer
@@ -298,16 +311,16 @@ export class ProteinViewerComponent {
 
     const layout = {
       title: 'Mutational Energy Heatmap (kcal/mol)',
+      autosize: true,
       height: 300,
-      width: 850,
       margin: { t: 60, l: 80, r: 60, b: 80 },
       xaxis: { title: 'Mutant' },
       yaxis: { title: 'Residue' },
-      plot_bgcolor: '#888',
-      paper_bgcolor: 'white',
+      plot_bgcolor: '#f5f5f5',
+      paper_bgcolor: '#f5f5f5',
     };
 
-    Plotly.react('heatmapDiv', [trace], layout, { responsive: true });
+    Plotly.newPlot('heatmapDiv', [trace], layout, { responsive: true });
   }
 
   updateRepresentation(autoView = true) {
@@ -341,7 +354,6 @@ export class ProteinViewerComponent {
     }, 50);
   }
 
-
   focusChain() {
     if (!this.stage || !this.viewerSettings.focusChain.trim()) return;
 
@@ -356,32 +368,46 @@ export class ProteinViewerComponent {
 
       structure.eachChain((chainProxy: any) => {
         const chainName = chainProxy.chainname?.toUpperCase();
-        const segName = chainProxy.segid?.toUpperCase();
 
-        if (chainInput === chainName || chainInput === segName) {
-          // Try both selection syntaxes
-          let selection = new NGL.Selection(`:${chainName}`);
-          let view = structure.getView(selection);
+        if (chainInput === chainName) {
+          // Select entire chain
+          const selection = new NGL.Selection(`:${chainName}`);
 
-          // If no atoms selected, try segid
-          if (view.atomCount === 0 && segName) {
-            selection = new NGL.Selection(`@${segName}`);
-            view = structure.getView(selection);
-          }
+          // Auto focus the camera
+          comp.autoView(selection);
+          this.animateCameraZoom(0.7, 800);
+          this.stage.viewer.requestRender();
 
-          if (view.atomCount > 0) {
-            comp.autoView(selection);
-            this.animateCameraZoom(0.7, 800);
-            this.stage.viewer.requestRender();
-            this.toastr.success(`Focused on "${chainInput}" (${view.atomCount} atoms)`);
-            found = true;
-          }
+          // Add a glowing highlight representation
+          const highlight = comp.addRepresentation(this.viewerSettings.representation, {
+            sele: `:${chainName}`,
+            color: 'yellow',
+            opacity: 1.0,
+            scale: 1.3,
+          });
+
+          setTimeout(() => {
+            let opacity = 1.0;
+            const fadeInterval = setInterval(() => {
+              opacity -= 0.15;
+              if (opacity <= 0) {
+                clearInterval(fadeInterval);
+                comp.removeRepresentation(highlight);
+              } else {
+                highlight.setParameters({ opacity });
+              }
+              this.stage.viewer.requestRender();
+            }, 100);
+          }, 3000);
+
+          this.toastr.success(`Focused on chain ${chainName}`);
+          found = true;
         }
       });
     }
 
     if (!found) {
-      this.toastr.warning(`No visible chain or segment "${chainInput}" found.`);
+      this.toastr.warning(`No matching chain found for "${chainInput}"`);
     }
   }
 
@@ -439,9 +465,9 @@ export class ProteinViewerComponent {
 
   async loadExistingJob() {
     this.loader.setLoading(true);
-
+    let id = localStorage.getItem('proteinJobId')!
     try {
-      const res = await firstValueFrom(this.proteinService.getResultList('ce80b4a8'));
+      const res = await firstValueFrom(this.proteinService.getResultList(id));
 
       if (res.status === 'completed') {
         this.toastr.success('Loaded existing results!');
@@ -450,8 +476,8 @@ export class ProteinViewerComponent {
         const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
         const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
 
-        await this.loadAllPdbsFromBackend('ce80b4a8', pdbFiles);
-        if (datFiles.length) await this.loadDatFilesAndPlot('ce80b4a8', datFiles);
+        await this.loadAllPdbsFromBackend(id, pdbFiles);
+        if (datFiles.length) await this.loadDatFilesAndPlot(id, datFiles);
 
       } else {
         this.toastr.info('Job still processing...');

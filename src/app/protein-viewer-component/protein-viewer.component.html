@@ -29,7 +29,7 @@
   </div>
 
   <div class="form-section">
-    <label class = 'has-text-grey-light'>Partner Chains:</label>
+    <label class='has-text-grey-light'>Partner Chains:</label>
     <input type="text" [(ngModel)]="form.partner_chains" placeholder="e.g. C,D" />
   </div>
 
@@ -46,8 +46,7 @@
     </label>
   </div>
 
-  <button class="button is-primary" (click)="onGoClick()" [disabled]="!isGoEnabled()"
-    style="margin-bottom: 28px;">Go</button>
+  <button class="button is-primary" (click)="onGoClick()" style="margin-bottom: 28px;">Go</button>
 
   <div *ngIf="showViewer" style="padding-left: 30px;padding-right: 30px;">
     <div class="columns is-vcentered is-multiline">
@@ -98,10 +97,16 @@
       </div>
 
       <div class="column is-one-fifth">
-        <label class="label has-text-grey-light" style="color:lightgray">Focus Chain</label>
+        <label class="label has-text-grey-light">Focus Chain</label>
         <div class="control has-icons-left">
-          <input class="input" type="text" [(ngModel)]="viewerSettings.focusChain" placeholder="e.g. A"
-            (keyup.enter)="focusChain()" />
+          <div class="select is-fullwidth">
+            <select [(ngModel)]="viewerSettings.focusChain" [disabled]="!availableChains.length">
+              <option value="">Select Chain</option>
+              <option *ngFor="let chain of availableChains" [value]="chain" (click)="focusChain()">
+                {{ chain }}
+              </option>
+            </select>
+          </div>
           <span class="icon is-left">
             <i class="fas fa-crosshairs"></i>
           </span>
@@ -131,8 +136,7 @@
   </div>
 
   <!-- DEMOOOOO to view -->
-<!-- 
-  <div class="form-section" style="margin-top: 20px;background-color: white;">
+  <!-- <div class="form-section" style="margin-top: 20px;background-color: white;">
     <label>Load Existing Job:</label>
     <div style="display: flex; gap: 10px; align-items: center;">
       <button class="button is-link" (click)="loadExistingJob()">Load</button>
@@ -140,17 +144,14 @@
   </div> -->
   <!-- DEMOOOOOOOOOOO END -->
 
-
-
   <!-- Viewer Container -->
   <div *ngIf="showViewer" #viewerSection class="viewer-container">
     <div id="viewport" style="width:100%; height:600px; border:1px solid #ccc; border-radius:8px;"></div>
   </div>
 
   <!-- Heatmap wit the results -->
-  <div *ngIf="resultFiles.length && showViewer" style="margin-top: 50px; text-align: center;background-color: white;">
-    <h3 class="title has-text-grey-light">Energy Heatmap</h3>
-    <div id="heatmapDiv" style=" margin: auto; width: 100%; max-width: 850px;">
-    </div>
+  <div *ngIf="resultFiles.length && showViewer" class="heatmap-wrapper" style="margin-top: 20px;">
+    <label class="has-text-grey-light is-size-5">Energy Heatmap:</label>
+    <div id="heatmapDiv"></div>
   </div>
 </div>
