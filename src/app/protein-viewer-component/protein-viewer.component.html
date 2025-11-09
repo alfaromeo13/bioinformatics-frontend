@@ -1,6 +1,6 @@
 <app-spinner-component></app-spinner-component>
 
-<div style="text-align: center;">
+<div style="text-align: center;margin-top: 10px;">
   <img src="assets/images/Header.png" alt="Download image" style="width:350px; height:auto; padding-top: 20px;">
 </div>
 
@@ -56,17 +56,15 @@
           <div class="select is-fullwidth">
             <select [(ngModel)]="viewerSettings.representation" (change)="updateRepresentation()">
               <option value="cartoon">Cartoon</option>
-              <option value="surface">Surface</option>
               <option value="ball+stick">Ball + Stick</option>
               <option value="licorice">Licorice</option>
               <option value="ribbon">Ribbon</option>
               <option value="spacefill">Spacefill</option>
               <option value="backbone">Backbone</option>
-              <option value="axes">Axes</option>
               <option value="hyperball">Hyperball</option>
-              <option value="distance">Distance</option>
               <option value="contact">Contact</option>
               <option value="label">Label</option>
+              <option value="point">Point</option>
             </select>
           </div>
           <span class="icon is-left">
@@ -75,7 +73,7 @@
         </div>
       </div>
 
-      <div class="column is-one-fifth">
+      <div class="column is-one-fifth" #viewerSection>
         <label class="label has-text-grey-light">Color Scheme</label>
         <div class="control has-icons-left">
           <div class="select is-fullwidth">
@@ -86,8 +84,11 @@
               <option value="resname">Residue Name</option>
               <option value="bfactor">B-Factor</option>
               <option value="uniform">Uniform</option>
-              <option value="hydrophobicity">Hydrophobicity</option>
+              <option value="resname">Resname</option>
               <option value="chainid">Chainid</option>
+              <option value="atomindex">Atomindex</option>
+              <option value="sstruc">Sstruc</option>
+              <option value="modelindex">Modelindex</option>
             </select>
           </div>
           <span class="icon is-left">
@@ -115,13 +116,22 @@
 
       <div class="column is-one-fifth has-text-centered">
         <label class="label is-invisible">Download</label>
-        <button class="button is-primary is-fullwidth" (click)="takeScreenshot()">
+        <button class="button is-primary is-fullwidth" (click)="takeScreenshot()" [disabled]="!stage">
           <span class="icon">
             <i class="fas fa-download"></i>
           </span>
           <span>Download Image</span>
         </button>
       </div>
+
+      <div class="column is-one-fifth has-text-centered">
+        <label class="label is-invisible">Export</label>
+        <button class="button is-info is-fullwidth" (click)="exportResults()">
+          <span class="icon"><i class="fas fa-file-archive"></i></span>
+          <span>Export Results</span>
+        </button>
+      </div>
+
 
       <div class="column is-one-fifth has-text-centered">
         <label class="label is-invisible">Fullscreen</label>
@@ -136,16 +146,16 @@
   </div>
 
   <!-- DEMOOOOO to view -->
-  <!-- <div class="form-section" style="margin-top: 20px;background-color: white;">
+  <div class="form-section" style="margin-top: 20px;background-color: white;">
     <label>Load Existing Job:</label>
     <div style="display: flex; gap: 10px; align-items: center;">
       <button class="button is-link" (click)="loadExistingJob()">Load</button>
     </div>
-  </div> -->
+  </div>
   <!-- DEMOOOOOOOOOOO END -->
 
   <!-- Viewer Container -->
-  <div *ngIf="showViewer" #viewerSection class="viewer-container">
+  <div *ngIf="showViewer" class="viewer-container">
     <div id="viewport" style="width:100%; height:600px; border:1px solid #ccc; border-radius:8px;"></div>
   </div>
 
@@ -154,4 +164,13 @@
     <label class="has-text-grey-light is-size-5">Energy Heatmap:</label>
     <div id="heatmapDiv"></div>
   </div>
+
+  <div *ngIf="energyTable.length" id="energyDist" style="width: 850px; margin: 0 auto; height: 300px;"></div>
+
+  <div *ngIf="energyTable.length" id="topMutations" style="width: 850px; margin: 0 auto; height: 300px;"></div>
+
+</div>
+
+<div class="footer-container">
+  <img src="assets/images/logo-famnit-okrogel.webp">
 </div>

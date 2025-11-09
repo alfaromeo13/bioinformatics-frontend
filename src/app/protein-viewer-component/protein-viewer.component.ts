@@ -1,10 +1,12 @@
 import * as NGL from 'ngl';
+import JSZip from 'jszip';
+import { saveAs } from 'file-saver';
 import { Component, ElementRef, ViewChild } from '@angular/core';
-import { ProteinViewerService } from './protin-viewer..service';
+import { ProteinViewerService } from './protein-viewer.service';
 import { ToastrService } from 'ngx-toastr';
-import { LoaderService } from '../services/loader.service';
 import { firstValueFrom } from 'rxjs';
 import Plotly from 'plotly.js-dist-min';
+import { SpinnerComponentService } from '../spinner-component/spinner.component.service';
 
 @Component({
   selector: 'app-protein-viewer-component',
@@ -12,7 +14,6 @@ import Plotly from 'plotly.js-dist-min';
   styleUrl: './protein-viewer.component.css'
 })
 export class ProteinViewerComponent {
-
   comp: any = null;
   stage: any = null;
   showViewer = false;
@@ -20,11 +21,12 @@ export class ProteinViewerComponent {
   resultFiles: string[] = [];
   pdbFile: File | null = null;
   availableChains: string[] = [];
+  energyTable: { residue: string, mutant: string, energy: number }[] = [];
   @ViewChild('viewerSection') viewerSection!: ElementRef<HTMLDivElement>;
 
   constructor(
-    private loader: LoaderService,
     private toastr: ToastrService,
+    private loader: SpinnerComponentService,
     private proteinService: ProteinViewerService,
   ) { }
 
@@ -95,8 +97,8 @@ export class ProteinViewerComponent {
     });
   }
 
-  /** Check periodically until results appear (max 10 min) **/
-  private async waitForResults(jobId: string, maxWait = 10 * 60 * 1000, interval = 15000): Promise<void> {
+  /** Check periodically until results appear (max 1 hour) **/
+  private async waitForResults(jobId: string, maxWait = 60 * 60 * 1000, interval = 15000): Promise<void> {
     const start = Date.now();
     let timeoutHandle: any; // store the timeout reference
 
@@ -126,7 +128,7 @@ export class ProteinViewerComponent {
         if (Date.now() - start >= maxWait) {
           clearTimeout(timeoutHandle); // stop any further checks
           this.loader.setLoading(false);
-          this.toastr.warning('Timeout after 10 min.');
+          this.toastr.warning('Timeout after 1 hour.');
           return;
         }
 
@@ -284,6 +286,60 @@ export class ProteinViewerComponent {
       y: residues,
       z
     });
+
+    this.energyTable = allData.flatMap(d => d.entries);
+
+    const energies = this.energyTable.map(e => e.energy);
+    Plotly.newPlot('energyDist', [{
+      type: 'histogram',
+      x: energies,
+      marker: { color: 'rgba(100,149,237,0.7)' },
+    }], {
+      title: 'Energy Distribution (ΔE)',
+      xaxis: { title: 'ΔEnergy (kcal/mol)' },
+      yaxis: { title: 'Count' },
+      plot_bgcolor: '#f5f5f5',
+      paper_bgcolor: '#f5f5f5'
+    });
+
+    const sorted = [...this.energyTable].sort((a, b) => Math.abs(b.energy) - Math.abs(a.energy)).slice(0, 10);
+    Plotly.newPlot('topMutations', [{
+      type: 'bar',
+      x: sorted.map(e => e.residue + e.mutant),
+      y: sorted.map(e => e.energy),
+      marker: {
+        color: sorted.map(e => e.energy > 0 ? 'red' : 'blue'),
+      }
+    }], {
+      title: 'Top 10 Mutational Energy Changes',
+      xaxis: { title: 'Residue-Mutation' },
+      yaxis: { title: 'ΔEnergy (kcal/mol)' },
+      plot_bgcolor: '#f5f5f5',
+      paper_bgcolor: '#f5f5f5'
+    });
+
+
+    setTimeout(() => {
+      const heatmapDiv = document.getElementById('heatmapDiv');
+      if (heatmapDiv) {
+        (heatmapDiv as any).on('plotly_click', (data: any) => {
+          const residue = data.points[0].y;
+          this.highlightResidueInViewer(residue);
+        });
+      }
+    }, 300);
+  }
+
+  highlightResidueInViewer(residue: string) {
+    if (!this.stage || !this.comp) return;
+    const selection = new NGL.Selection(`${residue}`);
+    const highlight = this.comp.addRepresentation(this.viewerSettings.representation, {
+      sele: selection,
+      color: 'yellow',
+      scale: 1.2,
+    });
+    this.scrollToViewer();
+    setTimeout(() => this.comp.removeRepresentation(highlight), 2000);
   }
 
   plotHeatmap(data: { x: string[]; y: string[]; z: number[][] }) {
@@ -429,16 +485,39 @@ export class ProteinViewerComponent {
     requestAnimationFrame(animate);
   }
 
-  takeScreenshot() {
-    if (!this.stage) return;
-    this.stage.viewer.requestRender();
-    this.stage.setParameters({ backgroundColor: "white" });
-    this.stage.makeImage({
-      factor: 1,
-      antialias: true,
-      trim: true,
-      transparent: false,
-    }).then((blob: Blob) => NGL.download(blob, 'snapshot.png'));
+  async takeScreenshot() {
+
+    // Wait until the viewer finishes rendering the current frame
+    await new Promise<void>((resolve) => {
+      try {
+        this.stage.viewer.requestRender();
+        // Wait for one frame to be fully drawn
+        this.stage.viewer.signals.rendered.addOnce(() => resolve());
+      } catch {
+        resolve();
+      }
+    });
+
+    try {
+      // Force white background and capture
+      this.stage.setParameters({ backgroundColor: "white" });
+      const blob = await this.stage.makeImage({
+        factor: 2,          // Higher res (2×)
+        antialias: true,
+        trim: false,
+        transparent: false,
+      });
+
+      if (!blob) {
+        this.toastr.error("Failed to capture screenshot. Try again.");
+        return;
+      }
+
+      NGL.download(blob, "snapshot.png");
+    } catch (err) {
+      console.error("Screenshot error:", err);
+      this.toastr.error("Could not create screenshot.");
+    }
   }
 
   /** View file content */
@@ -492,5 +571,37 @@ export class ProteinViewerComponent {
 
   toggleFullscreen() {
     if (this.stage) this.stage.toggleFullscreen();
+  }
+
+  async exportResults() {
+    if (!this.resultFiles.length) {
+      this.toastr.warning('No results to export yet.');
+      return;
+    }
+
+    const jobId = localStorage.getItem('proteinJobId');
+    const zip = new JSZip();
+
+    for (const file of this.resultFiles.filter(f => f.endsWith('.pdb') || f.endsWith('.dat'))) {
+      const res = await firstValueFrom(this.proteinService.getFileContent(jobId!, file));
+      zip.file(file, res);
+    }
+
+    // Add a JSON metadata
+    const metadata = {
+      jobId,
+      date: new Date().toISOString(),
+      settings: this.viewerSettings,
+      form: this.form
+    };
+    zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+
+    // Capture current image
+    const blob = await this.stage.makeImage({ factor: 1, antialias: true, trim: false, transparent: false });
+    zip.file('viewer_snapshot.png', blob);
+
+    const content = await zip.generateAsync({ type: 'blob' });
+    saveAs(content, `results_${jobId}.zip`);
+    this.toastr.success('Results exported successfully!');
   }
 }
