@@ -8,6 +8,5 @@ import { SpinnerComponentService } from './spinner.component.service';
   encapsulation: ViewEncapsulation.ShadowDom
 })
 export class SpinnerComponent {
-  jobLog: string = '';
   constructor(public loader: SpinnerComponentService) { }
 }

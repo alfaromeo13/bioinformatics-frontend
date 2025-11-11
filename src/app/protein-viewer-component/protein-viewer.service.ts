@@ -43,6 +43,11 @@ export class ProteinViewerService {
     });
   }
 
+  /** get the running logs */
+  getJobLog(jobId: string) {
+    return this.http.get(`${this.baseUrl}/get-log/${jobId}`);
+  }
+
   /** Common error handler */
   private handleError(error: HttpErrorResponse) {
     queueMicrotask(() => {

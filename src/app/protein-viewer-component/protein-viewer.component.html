@@ -1,25 +1,49 @@
 <app-spinner-component></app-spinner-component>
 
-<div style="text-align: center;margin-top: 10px;">
-  <img src="assets/images/Header.png" alt="Download image" style="width:350px; height:auto; padding-top: 20px;">
+<div style="text-align: center;margin-top: 30px;">
+  <h1 class="has-text-weight-bold" style="font-size:2.2em; color:#003366; margin-bottom:10px;">
+    In silico Interface Mutagenesis Platform
+  </h1>
+  <img src="assets/images/IIMEs.png" alt="Platform Overview"
+    style="width:100%;margin-top: 20px;margin-bottom: 20px; max-width:1100px;">
 </div>
 
 <div class="container">
   <div class="form-section">
-    <label class="label has-text-grey-light">PDB File:</label>
-    <div class="file has-name is-primary">
-      <label class="file-label">
-        <input class="file-input" type="file" accept=".pdb" (change)="onFileChange($event)" />
-        <span class="file-cta">
-          <span class="file-icon has-text-white">
-            <i class="fas fa-upload"></i>
-          </span>
-          <span class="file-label has-text-white">Choose a PDB File...</span>
-        </span>
-        <span class="file-name" *ngIf="pdbFile">
-          {{ pdbFile.name }}
-        </span>
-      </label>
+    <div class="field is-grouped is-grouped-centered file-upload-group">
+      <div class="control">
+        <label class="label has-text-grey-light has-text-centered">Upload PDB File</label>
+        <div class="file is-primary has-name">
+          <label class="file-label">
+            <input class="file-input" type="file" accept=".pdb" (change)="onFileChange($event)" />
+            <span class="file-cta">
+              <span class="file-icon has-text-white">
+                <i class="fas fa-upload"></i>
+              </span>
+              <span class="file-label has-text-white">Choose a PDB File..</span>
+            </span>
+            <span class="file-name" *ngIf="pdbFile">
+              {{ pdbFile.name }}
+            </span>
+          </label>
+        </div>
+      </div>
+
+
+      <div class="control">
+        <label class="label has-text-grey-light has-text-centered">Preview results</label>
+        <div class="file is-link">
+          <label class="file-label">
+            <input class="file-input" type="file" accept=".zip" (change)="loadExistingJob($event)" />
+            <span class="file-cta">
+              <span class="file-icon">
+                <i class="fas fa-cloud-upload-alt"></i>
+              </span>
+              <span class="file-label">Upload ZIP</span>
+            </span>
+          </label>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -50,7 +74,7 @@
 
   <div *ngIf="showViewer" style="padding-left: 30px;padding-right: 30px;">
     <div class="columns is-vcentered is-multiline">
-      <div class="column is-one-fifth">
+      <div class="column is-2">
         <label class="label has-text-grey-light">Representation</label>
         <div class="control has-icons-left">
           <div class="select is-fullwidth">
@@ -73,7 +97,7 @@
         </div>
       </div>
 
-      <div class="column is-one-fifth" #viewerSection>
+      <div class="column is-3" #viewerSection>
         <label class="label has-text-grey-light">Color Scheme</label>
         <div class="control has-icons-left">
           <div class="select is-fullwidth">
@@ -97,7 +121,7 @@
         </div>
       </div>
 
-      <div class="column is-one-fifth">
+      <div class="column is-2">
         <label class="label has-text-grey-light">Focus Chain</label>
         <div class="control has-icons-left">
           <div class="select is-fullwidth">
@@ -114,61 +138,103 @@
         </div>
       </div>
 
-      <div class="column is-one-fifth has-text-centered">
-        <label class="label is-invisible">Download</label>
+      <div class="column has-text-centered">
+        <label class="label has-text-grey-light">Download</label>
         <button class="button is-primary is-fullwidth" (click)="takeScreenshot()" [disabled]="!stage">
-          <span class="icon">
-            <i class="fas fa-download"></i>
-          </span>
-          <span>Download Image</span>
+          <span class="icon"><i class="fas fa-download"></i></span>
         </button>
       </div>
 
-      <div class="column is-one-fifth has-text-centered">
-        <label class="label is-invisible">Export</label>
-        <button class="button is-info is-fullwidth" (click)="exportResults()">
-          <span class="icon"><i class="fas fa-file-archive"></i></span>
-          <span>Export Results</span>
-        </button>
-      </div>
-
-
-      <div class="column is-one-fifth has-text-centered">
-        <label class="label is-invisible">Fullscreen</label>
-        <button class="button is-dark" (click)="toggleFullscreen()">
+      <div class="column is-1 has-text-centered">
+        <label class="label has-text-grey-light">Fullscreen</label>
+        <button class="button is-white" (click)="toggleFullscreen()"
+          style="color: #363636;border: 1px solid rgb(120, 120, 120);">
           <span class="icon">
             <i class="fas fa-expand"></i>
           </span>
-          <span>Fullscreen</span>
         </button>
       </div>
+
+      <div class="column is-1 has-text-centered">
+        <label class="label has-text-grey-light">Zoom out</label>
+        <button class="button is-white" (click)="zoomOut()" style="border: 1px solid rgb(120,120,120); color:#363636;">
+          <span class="icon"><i class="fas fa-search-minus"></i></span>
+        </button>
+      </div>
+
+      <div class="column is-1 has-text-centered">
+        <label class="label has-text-grey-light">Zoom In</label>
+        <button class="button is-white" (click)="zoomIn()" style="border: 1px solid rgb(120,120,120); color:#363636;">
+          <span class="icon"><i class="fas fa-search-plus"></i></span>
+        </button>
+      </div>
+
+      <div class="column is-1 has-text-centered">
+        <label class="label has-text-grey-light">Refresh</label>
+        <button class="button is-white" (click)="refreshViewer()" [disabled]="!stage" title="Refresh Viewer"
+          style="border: 1px solid rgb(120,120,120); color:#363636;">
+          <span class="icon">
+            <i class="fas fa-sync-alt"></i>
+          </span>
+        </button>
+      </div>
+
     </div>
   </div>
 
-  <!-- DEMOOOOO to view -->
-  <div class="form-section" style="margin-top: 20px;background-color: white;">
-    <label>Load Existing Job:</label>
-    <div style="display: flex; gap: 10px; align-items: center;">
-      <button class="button is-link" (click)="loadExistingJob()">Load</button>
-    </div>
-  </div>
-  <!-- DEMOOOOOOOOOOO END -->
-
-  <!-- Viewer Container -->
   <div *ngIf="showViewer" class="viewer-container">
     <div id="viewport" style="width:100%; height:600px; border:1px solid #ccc; border-radius:8px;"></div>
   </div>
 
-  <!-- Heatmap wit the results -->
-  <div *ngIf="resultFiles.length && showViewer" class="heatmap-wrapper" style="margin-top: 20px;">
-    <label class="has-text-grey-light is-size-5">Energy Heatmap:</label>
-    <div id="heatmapDiv"></div>
+  <div *ngIf="datMutations.length">
+    <div style="margin-top: 15px;">
+      <div class="has-text-centered">
+        <label class=" has-text-grey-light">Mutations:</label>
+        <div class="columns is-multiline is-centered is-variable is-1 is-vcentered" style="margin-top:10px;">
+          <div class="column is-narrow" *ngFor="let m of datMutations">
+            <button class="button is-white" style="color: #363636;border: 1px solid rgb(120, 120, 120);margin:4px;"
+              (click)="onSelectMutation(m)">
+              {{ m }}
+            </button>
+          </div>
+          <div class="column is-narrow">
+            <button class="button is-white" style="color: #363636;border: 1px solid rgb(120, 120, 120);"
+              (click)="onShowAllHeatmap()">
+              <span class="icon" style="color: #363636;"><i class="fas fa-th"></i></span>
+              <span>Show All</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div *ngIf="selectedMutation && selectedMutation!='All Mutations'" class="box"
+      style="background:white;  border:1px solid #ccc;border-radius: 10px; margin-top:20px;">
+      <div class="has-text-centered">
+        <label class="title is-5 has-text-grey">
+          DAT File Contents ({{ selectedMutation }}):
+        </label>
+      </div>
+      <pre class="content has-text-centered" style="font-size:1.5rem; 
+      background:transparent; border:none; max-height:500px; overflow:auto;"> {{ selectedMutationContent }}
+    </pre>
+    </div>
+
+    <div class="box" style="background:transparent; border:none; box-shadow:none;">
+      <div id="mutationHeatmapDiv" style="margin-top:10px;"></div>
+    </div>
   </div>
 
-  <div *ngIf="energyTable.length" id="energyDist" style="width: 850px; margin: 0 auto; height: 300px;"></div>
-
-  <div *ngIf="energyTable.length" id="topMutations" style="width: 850px; margin: 0 auto; height: 300px;"></div>
-
+  <div class="has-text-centered" *ngIf="showViewer" style="margin-top: 30px; margin-bottom: 20px;">
+    <div class="is-inline-block">
+      <button class="button is-primary" (click)="exportResults()" style="font-size:1rem; padding: 1.25em 2em;">
+        <span class="icon">
+          <i class="fas fa-download"></i>
+        </span>
+        <span>Export Results</span>
+      </button>
+    </div>
+  </div>
 </div>
 
 <div class="footer-container">

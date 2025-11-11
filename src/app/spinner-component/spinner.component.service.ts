@@ -5,6 +5,8 @@ import { Injectable } from '@angular/core';
 })
 export class SpinnerComponentService {
 
+  jobLog: string = '';
+
   private loading: boolean = false;
 
   constructor() { }

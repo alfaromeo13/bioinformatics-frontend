@@ -14,14 +14,16 @@ import { SpinnerComponentService } from '../spinner-component/spinner.component.
   styleUrl: './protein-viewer.component.css'
 })
 export class ProteinViewerComponent {
-  comp: any = null;
+
   stage: any = null;
   showViewer = false;
-  selectedFileContent = '';
   resultFiles: string[] = [];
   pdbFile: File | null = null;
+  datMutations: string[] = [];
+  selectedMutation: string = '';
   availableChains: string[] = [];
-  energyTable: { residue: string, mutant: string, energy: number }[] = [];
+  selectedMutationContent: string = '';
+  currentlyShownPdb: string | null = null;
   @ViewChild('viewerSection') viewerSection!: ElementRef<HTMLDivElement>;
 
   constructor(
@@ -97,13 +99,38 @@ export class ProteinViewerComponent {
     });
   }
 
-  /** Check periodically until results appear (max 1 hour) **/
-  private async waitForResults(jobId: string, maxWait = 60 * 60 * 1000, interval = 15000): Promise<void> {
-    const start = Date.now();
+  async refreshViewer() {
+    const jobId = localStorage.getItem('proteinJobId');
+    if (!jobId) {
+      this.toastr.warning('No job found to reload.');
+      return;
+    }
+
+    // Only reload if we had results before
+    const pdbFiles = this.resultFiles.filter(f => f.endsWith('.pdb'));
+    if (!pdbFiles.length) {
+      this.toastr.warning('No PDB files found to reload.');
+      return;
+    }
+
+    this.loader.setLoading(true);
+    this.stage.removeAllComponents();
+
+    await this.loadAllPdbsFromBackend(jobId, pdbFiles);
+    this.currentlyShownPdb = null;
+
+    this.toastr.success('Viewer refreshed, loaded all PDBs again.');
+  }
+
+  /** Check periodically until results appear **/
+  private async waitForResults(jobId: string, interval = 15000): Promise<void> {
+
     let timeoutHandle: any; // store the timeout reference
 
     const check = async () => {
       try {
+
+        await this.fetchJobLog(jobId);
 
         const res = await firstValueFrom(this.proteinService.getResultList(jobId));
 
@@ -121,14 +148,7 @@ export class ProteinViewerComponent {
           if (datFiles.length) await this.loadDatFilesAndPlot(jobId, datFiles);
 
           this.loader.setLoading(false);
-          return;
-        }
-
-        // Timeout check
-        if (Date.now() - start >= maxWait) {
-          clearTimeout(timeoutHandle); // stop any further checks
-          this.loader.setLoading(false);
-          this.toastr.warning('Timeout after 1 hour.');
+          this.loader.jobLog = '';
           return;
         }
 
@@ -193,14 +213,11 @@ export class ProteinViewerComponent {
             if (res) {
               const blob = new Blob([res], { type: 'text/plain' });
               this.stage.loadFile(blob, { ext: 'pdb' }).then((comp: any) => {
-                this.comp = comp;
-
-                console.log('All chains and residues:');
-                this.comp.structure.eachChain((chain: any) => {
-                  console.log(`Chain: ${chain.chainname}, Residues: ${chain.residueCount}`);
+                comp.addRepresentation(this.viewerSettings.representation, {
+                  colorScheme: this.viewerSettings.color,
+                  opacity: this.viewerSettings.representation === 'surface' ? 0.6 : 1.0,
                 });
 
-                comp.addRepresentation('cartoon', { colorScheme: 'chainname' });
                 if (i === 0) this.stage.autoView();
                 remaining--;
                 if (remaining === 0) {
@@ -209,7 +226,7 @@ export class ProteinViewerComponent {
 
                   setTimeout(() => {
                     this.stage.autoView();
-                    this.animateCameraZoom(0.7, 1000);
+                    this.animateCameraZoom(0.8, 1000);
                     this.availableChains = this.getAvailableChains();
                     this.stage.viewer.signals.rendered.addOnce(() => {
                       this.loader.setLoading(false);
@@ -243,9 +260,8 @@ export class ProteinViewerComponent {
     for (const line of lines) {
       const match = line.match(/([A-Z0-9_]+)\s+(-?\d+(?:\.\d+)?)/);
       if (match) {
-        const id = match[1]; // e.g. PROC_60_E2A
+        const id = match[1];
         const energy = parseFloat(match[2]);
-        // extract residue index (number) and mutant amino acid (last letter)
         const residueMatch = id.match(/(\d+)/);
         const mutantMatch = id.match(/([A-Z])$/);
         const residue = residueMatch ? residueMatch[1] : 'UNK';
@@ -257,20 +273,29 @@ export class ProteinViewerComponent {
     return { file: filename.replace('.dat', ''), entries: parsed };
   }
 
-  /** Load .dat files and build a 2D heatmap matrix */
+
+  // cache parsed data per file (key: base filename without .dat)
+  private parsedByFile: Record<string, { file: string; entries: { residue: string; mutant: string; energy: number }[] }> = {};
+
+
+  // when you load all DATs initially, store them:
   async loadDatFilesAndPlot(jobId: string, datFiles: string[]): Promise<void> {
     const allData: any[] = [];
 
     for (const file of datFiles) {
-      const res = await firstValueFrom(this.proteinService.getFileContent(jobId, file));
-      allData.push(this.parseFullDat(res, file));
+      const text = await firstValueFrom(this.proteinService.getFileContent(jobId, file));
+      const parsed = this.parseFullDat(text, file);
+      allData.push(parsed);
+
+      const key = file.replace(/\.dat$/i, '');
+      this.parsedByFile[key] = parsed;
     }
 
-    // collect all unique residues and mutants
+    this.datMutations = Object.keys(this.parsedByFile);
+
+    // Build combined heatmap once (big overview)
     const residues = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.residue))));
     const mutants = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.mutant))));
-
-    // fill matrix z[y][x]
     const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));
 
     for (const d of allData) {
@@ -280,103 +305,245 @@ export class ProteinViewerComponent {
         if (y !== -1 && x !== -1) z[y][x] = e.energy;
       }
     }
-
-    this.plotHeatmap({
-      x: mutants,
-      y: residues,
-      z
-    });
-
-    this.energyTable = allData.flatMap(d => d.entries);
-
-    const energies = this.energyTable.map(e => e.energy);
-    Plotly.newPlot('energyDist', [{
-      type: 'histogram',
-      x: energies,
-      marker: { color: 'rgba(100,149,237,0.7)' },
-    }], {
-      title: 'Energy Distribution (ΔE)',
-      xaxis: { title: 'ΔEnergy (kcal/mol)' },
-      yaxis: { title: 'Count' },
-      plot_bgcolor: '#f5f5f5',
-      paper_bgcolor: '#f5f5f5'
-    });
-
-    const sorted = [...this.energyTable].sort((a, b) => Math.abs(b.energy) - Math.abs(a.energy)).slice(0, 10);
-    Plotly.newPlot('topMutations', [{
-      type: 'bar',
-      x: sorted.map(e => e.residue + e.mutant),
-      y: sorted.map(e => e.energy),
-      marker: {
-        color: sorted.map(e => e.energy > 0 ? 'red' : 'blue'),
-      }
-    }], {
-      title: 'Top 10 Mutational Energy Changes',
-      xaxis: { title: 'Residue-Mutation' },
-      yaxis: { title: 'ΔEnergy (kcal/mol)' },
-      plot_bgcolor: '#f5f5f5',
-      paper_bgcolor: '#f5f5f5'
-    });
-
-
-    setTimeout(() => {
-      const heatmapDiv = document.getElementById('heatmapDiv');
-      if (heatmapDiv) {
-        (heatmapDiv as any).on('plotly_click', (data: any) => {
-          const residue = data.points[0].y;
-          this.highlightResidueInViewer(residue);
-        });
-      }
-    }, 300);
   }
 
-  highlightResidueInViewer(residue: string) {
-    if (!this.stage || !this.comp) return;
-    const selection = new NGL.Selection(`${residue}`);
-    const highlight = this.comp.addRepresentation(this.viewerSettings.representation, {
-      sele: selection,
-      color: 'yellow',
-      scale: 1.2,
-    });
-    this.scrollToViewer();
-    setTimeout(() => this.comp.removeRepresentation(highlight), 2000);
+  async onSelectMutation(mutation: string) {
+    this.selectedMutation = mutation;
+    const cached = this.parsedByFile[mutation];
+
+    if (!cached || !cached.entries.length) {
+      this.toastr.error('Failed to load mutation data');
+      return;
+    }
+
+    // dump raw DAT text if you still want it (optional: keep a raw cache too)
+    const jobId = localStorage.getItem('proteinJobId')!;
+    const filename = mutation.endsWith('.dat') ? mutation : `${mutation}.dat`;
+    try {
+      this.selectedMutationContent = await firstValueFrom(this.proteinService.getFileContent(jobId, filename));
+    } catch {
+      // if fetching raw text fails, still render heatmap from cached parsed data
+      this.selectedMutationContent = '';
+    }
+
+    const residues = Array.from(new Set(cached.entries.map(e => e.residue)));
+    const mutants = Array.from(new Set(cached.entries.map(e => e.mutant)));
+    const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));
+    for (const e of cached.entries) {
+      const y = residues.indexOf(e.residue);
+      const x = mutants.indexOf(e.mutant);
+      if (y !== -1 && x !== -1) z[y][x] = e.energy;
+    }
+
+    // wait for Angular to render <div id="mutationHeatmapDiv">
+    setTimeout(() => this.plotMutationHeatmap({ x: mutants, y: residues, z }), 50);
   }
 
-  plotHeatmap(data: { x: string[]; y: string[]; z: number[][] }) {
-    const allVals = data.z.flat().filter(v => Number.isFinite(v));
-    const zmin = Math.min(...allVals);
-    const zmax = Math.max(...allVals);
+  // the "All heatmap" button — rebuild combined from cache
+  onShowAllHeatmap() {
+    const all = Object.values(this.parsedByFile);
+    if (!all.length) return;
 
-    const trace = {
-      type: 'heatmap',
-      x: data.x,
-      y: data.y,
-      z: data.z,
-      zmin,
-      zmax,
-      colorscale: [
-        [0, 'rgb(0,0,255)'],
-        [0.5, 'rgb(255,255,255)'],
-        [1, 'rgb(255,0,0)']
-      ],
-      hovertemplate: 'Residue %{y}, Mutant %{x}: %{z:.2f}<extra></extra>',
-      showscale: true,
-      xgap: 1,
-      ygap: 1,
+    const residues = Array.from(new Set(all.flatMap(d => d.entries.map(e => e.residue))));
+    const mutants = Array.from(new Set(all.flatMap(d => d.entries.map(e => e.mutant))));
+    const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));
+
+    for (const d of all) {
+      for (const e of d.entries) {
+        const y = residues.indexOf(e.residue);
+        const x = mutants.indexOf(e.mutant);
+        if (y !== -1 && x !== -1) z[y][x] = e.energy;
+      }
+    }
+
+    this.selectedMutation = 'All Mutations';
+    this.selectedMutationContent = ''; // hide text for "all"
+    this.plotMutationHeatmap({ x: mutants, y: residues, z });
+  }
+
+  plotMutationHeatmap(data: { x: string[]; y: string[]; z: number[][] }) {
+    const isAll = this.selectedMutation === 'All Mutations';
+    this.waitForElement('mutationHeatmapDiv')
+      .then((el) => {
+        el.style.minHeight = isAll ? '400px' : '180px';
+        el.style.display = 'block';
+
+        const dynamicHeight = isAll
+          ? Math.max(350, 100 + data.y.length * 25) // grow with rows, minimum 350
+          : 180;
+
+        const trace = {
+          type: 'heatmap',
+          x: data.x,
+          y: data.y,
+          z: data.z,
+          colorscale: [
+            [0, 'rgb(43, 47, 129)'],
+            [0.5, 'rgb(255,255,255)'],
+            [1, 'rgb(190, 14, 54)']
+          ],
+          hovertemplate: 'Residue %{y}, Mutant %{x}: %{z:.2f}<extra></extra>',
+          showscale: true,
+          xgap: 1,
+          ygap: 1,
+        } as any;
+
+        const layout = {
+          title: {
+            text: isAll
+              ? 'Combined Mutational Energy Heatmap'
+              : `Heatmap for ${this.selectedMutation}`,
+            font: { size: 17, color: '#abb1bf', family: 'Inter, sans-serif', weight: 'bold' },
+            xanchor: 'center',
+            x: 0.5,
+            y: 0.97,
+          },
+          height: dynamicHeight,
+          margin: isAll
+            ? { t: 60, b: 20, l: 80, r: 40 }
+            : { t: 60, b: 40, l: 60, r: 30 },
+          xaxis: {
+            title: {
+              text: 'Mutant',
+              font: { size: 15, color: '#abb1bf', weight: 'bold' },
+              standoff: 12,
+            },
+            tickfont: { size: 12, color: '#abb1bf' },
+            automargin: true,
+          },
+          yaxis: {
+            title: {
+              text: 'Residue',
+              font: { size: 15, color: '#abb1bf', weight: 'bold' },
+              standoff: 12,
+            },
+            tickfont: { size: 12, color: '#abb1bf' },
+            automargin: true,
+          },
+          plot_bgcolor: '#000000ff',
+          paper_bgcolor: '#f5f5f5',
+        } as any;
+
+
+        Plotly.newPlot('mutationHeatmapDiv', [trace], layout, { responsive: true })
+          .then((div: any) => {
+            div.on('plotly_click', (ev: any) => {
+              const residue = String(ev.points[0].y).trim();
+              const mutant = String(ev.points[0].x).toLowerCase();
+              const prefixMap: Record<string, string> = {
+                arg: 'r2',
+                glu: 'e2',
+                asn: 'n2',
+                gln: 'q2',
+                lys: 'k2',
+                ser: 's2',
+                thr: 't2',
+              };
+
+              // Try to derive prefix from selected mutation type, fallback to any match
+              let prefix =
+                Object.entries(prefixMap).find(([k]) =>
+                  this.selectedMutation.toLowerCase().includes(k)
+                )?.[1] || '';
+
+              // For "Show All", allow fallback to any matching prefix
+              if (isAll) prefix = ''; // let the filter find any match
+
+              // Build expected pattern
+              const expectedPattern = new RegExp(
+                `joined_proc_${residue}_(?:[a-z]\\d)?${mutant}\\.pdb`,
+                'i'
+              );
+
+              // Find matching PDB
+              const target = this.resultFiles.find(f => expectedPattern.test(f));
+
+              if (!target) {
+                this.toastr.warning(
+                  `No matching PDB found for residue ${residue} and mutant ${mutant.toUpperCase()}`
+                );
+                console.warn('Expected regex:', expectedPattern);
+                console.warn('Available PDBs:', this.resultFiles);
+                return;
+              }
+
+              // Load only that PDB
+              const jobId = localStorage.getItem('proteinJobId')!;
+              this.loader.setLoading(true);
+
+              this.proteinService.getFileContent(jobId, target).subscribe({
+                next: res => {
+                  const blob = new Blob([res], { type: 'text/plain' });
+                  this.stage.removeAllComponents();
+                  this.stage.loadFile(blob, { ext: 'pdb' }).then((comp: any) => {
+                    comp.addRepresentation(this.viewerSettings.representation, {
+                      colorScheme: this.viewerSettings.color,
+                      opacity:
+                        this.viewerSettings.representation === 'surface' ? 0.6 : 1.0,
+                    });
+                    this.stage.autoView();
+                    this.animateCameraZoom(0.8, 1000);
+                    this.loader.setLoading(false);
+                    this.toastr.info(`Showing ${target}`);
+                  });
+                },
+                error: () => {
+                  this.loader.setLoading(false);
+                  this.toastr.error(`Could not load PDB for ${target}`);
+                },
+              });
+
+              this.scrollToViewer();
+            });
+          });
+      })
+      .catch(err => console.warn(err.message));
+  }
+
+  zoomIn() {
+    this.adjustZoom(0.85);  // Zoom in by reducing camera distance
+  }
+
+  zoomOut() {
+    this.adjustZoom(1.15);  // Zoom out by increasing camera distance
+  }
+
+  /**
+   * Helper function to smoothly animate zooming.
+   * @param factor - <1 zooms in, >1 zooms out
+   * @param duration - milliseconds
+   */
+  private adjustZoom(factor: number, duration = 400) {
+    if (!this.stage) return;
+
+    const cam = this.stage.viewer.camera;
+    const startZ = cam.position.z;
+    const targetZ = startZ * factor;
+    const startTime = performance.now();
+
+    const animate = (time: number) => {
+      const progress = Math.min((time - startTime) / duration, 1);
+      const eased = 0.5 - Math.cos(progress * Math.PI) / 2; // smooth ease-in-out
+      cam.position.z = startZ - (startZ - targetZ) * eased;
+      this.stage.viewer.requestRender();
+      if (progress < 1) requestAnimationFrame(animate);
     };
+    requestAnimationFrame(animate);
+  }
 
-    const layout = {
-      title: 'Mutational Energy Heatmap (kcal/mol)',
-      autosize: true,
-      height: 300,
-      margin: { t: 60, l: 80, r: 60, b: 80 },
-      xaxis: { title: 'Mutant' },
-      yaxis: { title: 'Residue' },
-      plot_bgcolor: '#f5f5f5',
-      paper_bgcolor: '#f5f5f5',
-    };
+  /** Wait until an element with the given ID exists in the DOM */
+  private async waitForElement(id: string, timeout = 2000): Promise<HTMLElement> {
+    const start = Date.now();
 
-    Plotly.newPlot('heatmapDiv', [trace], layout, { responsive: true });
+    return new Promise((resolve, reject) => {
+      const check = () => {
+        const el = document.getElementById(id);
+        if (el) return resolve(el);
+        if (Date.now() - start > timeout) return reject(new Error(`Timeout waiting for element: ${id}`));
+        requestAnimationFrame(check);
+      };
+      check();
+    });
   }
 
   updateRepresentation(autoView = true) {
@@ -400,7 +567,7 @@ export class ProteinViewerComponent {
 
       if (autoView) {
         this.stage.autoView();
-        this.animateCameraZoom(0.8, 800); // smooth re-zoom animation
+        this.animateCameraZoom(0.8, 1000); // smooth re-zoom animation
       }
       this.stage.viewer.requestRender();
       this.stage.viewer.signals.rendered.addOnce(() => {
@@ -428,10 +595,6 @@ export class ProteinViewerComponent {
         if (chainInput === chainName) {
           // Select entire chain
           const selection = new NGL.Selection(`:${chainName}`);
-
-          // Auto focus the camera
-          comp.autoView(selection);
-          this.animateCameraZoom(0.7, 800);
           this.stage.viewer.requestRender();
 
           // Add a glowing highlight representation
@@ -455,15 +618,9 @@ export class ProteinViewerComponent {
               this.stage.viewer.requestRender();
             }, 100);
           }, 3000);
-
-          this.toastr.success(`Focused on chain ${chainName}`);
           found = true;
         }
       });
-    }
-
-    if (!found) {
-      this.toastr.warning(`No matching chain found for "${chainInput}"`);
     }
   }
 
@@ -485,89 +642,109 @@ export class ProteinViewerComponent {
     requestAnimationFrame(animate);
   }
 
-  async takeScreenshot() {
 
-    // Wait until the viewer finishes rendering the current frame
-    await new Promise<void>((resolve) => {
-      try {
-        this.stage.viewer.requestRender();
-        // Wait for one frame to be fully drawn
-        this.stage.viewer.signals.rendered.addOnce(() => resolve());
-      } catch {
-        resolve();
-      }
+  async makePhoto() {
+    return await this.stage.makeImage({
+      factor: 2,
+      antialias: true,
+      trim: false,
+      transparent: false
     });
+  }
 
+  async takeScreenshot() {
     try {
-      // Force white background and capture
-      this.stage.setParameters({ backgroundColor: "white" });
-      const blob = await this.stage.makeImage({
-        factor: 2,          // Higher res (2×)
-        antialias: true,
-        trim: false,
-        transparent: false,
-      });
-
-      if (!blob) {
-        this.toastr.error("Failed to capture screenshot. Try again.");
-        return;
-      }
-
-      NGL.download(blob, "snapshot.png");
+      const viewerBlob = await this.makePhoto();
+      NGL.download(viewerBlob, "snapshot.png");
     } catch (err) {
       console.error("Screenshot error:", err);
       this.toastr.error("Could not create screenshot.");
     }
   }
 
-  /** View file content */
-  viewFile(filename: string) {
-    const jobId = localStorage.getItem('proteinJobId')!;
-    this.proteinService.getFileContent(jobId, filename).subscribe({
-      next: (res) => {
-        this.selectedFileContent = res || '(binary file)';
-      },
-      error: (err) => console.error(err)
-    });
-  }
+  async loadExistingJob(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input?.files?.[0];
 
-  /** Download the file directly */
-  downloadFile(filename: string) {
-    const jobId = localStorage.getItem('proteinJobId')!;
-    const link = document.createElement('a');
-    link.href = `${this.proteinService.baseUrl}/get-file/${jobId}/${filename}`;
-    link.download = filename;
-    link.click();
-  }
+    if (!file || !file.name.endsWith('.zip')) {
+      this.toastr.warning('Please select a valid results ZIP (.zip)');
+      return;
+    }
 
-  // DEMOOOOOO ISPOD
-
-  async loadExistingJob() {
     this.loader.setLoading(true);
-    let id = localStorage.getItem('proteinJobId')!
+
     try {
-      const res = await firstValueFrom(this.proteinService.getResultList(id));
+      const zip = await JSZip.loadAsync(file);
+      const allFiles = Object.keys(zip.files);
 
-      if (res.status === 'completed') {
-        this.toastr.success('Loaded existing results!');
-        this.resultFiles = res.files;
+      this.resultFiles = allFiles;
+      this.toastr.success('Preview loaded from ZIP');
 
-        const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
-        const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
+      const pdbFiles = allFiles.filter(f => f.endsWith('.pdb'));
+      const datFiles = allFiles.filter(f => f.endsWith('.dat'));
 
-        await this.loadAllPdbsFromBackend(id, pdbFiles);
-        if (datFiles.length) await this.loadDatFilesAndPlot(id, datFiles);
+      // 1. Load all PDBs into viewer
+      this.showViewer = true;
+      await new Promise(r => setTimeout(r)); // ensure DOM is ready
 
+      if (!this.stage) {
+        this.stage = new NGL.Stage("viewport", { backgroundColor: "white" });
+        window.addEventListener("resize", () => this.stage.handleResize(), false);
       } else {
-        this.toastr.info('Job still processing...');
+        this.stage.removeAllComponents();
+      }
+
+      // Load PDBs
+      for (const pdb of pdbFiles) {
+        const content = await zip.file(pdb)!.async('string');
+        const blob = new Blob([content], { type: 'text/plain' });
+
+        const comp = await this.stage.loadFile(blob, { ext: 'pdb' });
+        comp.addRepresentation('cartoon', { colorScheme: 'chainname' });
+      }
+
+      this.stage.autoView();
+      this.animateCameraZoom();
+      this.availableChains = this.getAvailableChains();
+      this.scrollToViewer();
+
+      // 2. Parse DATs and build heatmaps
+      if (datFiles.length) {
+        for (const dat of datFiles) {
+          const content = await zip.file(dat)!.async('string');
+          const parsed = this.parseFullDat(content, dat);
+          const key = dat.replace(/\.dat$/i, '');
+          this.parsedByFile[key] = parsed;
+        }
+
+        this.datMutations = Object.keys(this.parsedByFile);
+        this.onShowAllHeatmap();
       }
     } catch (err) {
-      console.error(err);
-      this.toastr.error('Failed to load existing job');
+      console.error('ZIP load error:', err);
+      this.toastr.error('Failed to load ZIP preview');
     } finally {
       this.loader.setLoading(false);
     }
   }
+
+  private async fetchJobLog(jobId: string) {
+    try {
+      const res: any = await firstValueFrom(this.proteinService.getJobLog(jobId));
+      if (res && res.log) {
+        let log = res.log.trim();
+        const lines = log.split('\n');
+        if (lines.length > 15) {
+          log = lines.slice(-15).join('\n'); // keeps only the last 15 lines
+          log = '... (truncated)\n' + log;   // optional: indicate truncation
+        }
+        this.loader.jobLog = log;
+      }
+    } catch (err) {
+      console.warn('Log fetch failed:', err);
+    }
+  }
+
 
   toggleFullscreen() {
     if (this.stage) this.stage.toggleFullscreen();
@@ -582,24 +759,48 @@ export class ProteinViewerComponent {
     const jobId = localStorage.getItem('proteinJobId');
     const zip = new JSZip();
 
+    // Include all PDB and DAT files
     for (const file of this.resultFiles.filter(f => f.endsWith('.pdb') || f.endsWith('.dat'))) {
       const res = await firstValueFrom(this.proteinService.getFileContent(jobId!, file));
       zip.file(file, res);
     }
 
-    // Add a JSON metadata
-    const metadata = {
-      jobId,
-      date: new Date().toISOString(),
-      settings: this.viewerSettings,
-      form: this.form
-    };
-    zip.file('metadata.json', JSON.stringify(metadata, null, 2));
+    // Add viewer image snapshot
+    try {
+      const viewerBlob = await this.makePhoto();
+      zip.file('viewer_snapshot.png', viewerBlob);
+    } catch (err) {
+      this.toastr.warning("Viewer image could not be captured.");
+    }
 
-    // Capture current image
-    const blob = await this.stage.makeImage({ factor: 1, antialias: true, trim: false, transparent: false });
-    zip.file('viewer_snapshot.png', blob);
+    // Generate and add heatmap image
+    try {
+      // Force "Show All" heatmap if not already selected
+      if (this.selectedMutation !== 'All Mutations') {
+        this.onShowAllHeatmap();
+        await new Promise(resolve => setTimeout(resolve, 500)); // wait for heatmap to render
+      }
 
+      const heatmapDiv = document.getElementById('mutationHeatmapDiv');
+      if (!heatmapDiv) throw new Error('Heatmap not found');
+
+      const heatmapImg = await Plotly.toImage(heatmapDiv, {
+        format: 'png',
+        height: heatmapDiv.offsetHeight,
+        width: heatmapDiv.offsetWidth,
+        scale: 2
+      });
+
+      const res = await fetch(heatmapImg);
+      const blob = await res.blob();
+      zip.file('combined_heatmap.png', blob);
+
+    } catch (err) {
+      console.warn('Heatmap image export failed:', err);
+      this.toastr.warning("Could not export heatmap image.");
+    }
+
+    // Final ZIP export
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, `results_${jobId}.zip`);
     this.toastr.success('Results exported successfully!');

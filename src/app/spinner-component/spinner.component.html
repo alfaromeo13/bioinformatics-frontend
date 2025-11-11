@@ -1,6 +1,6 @@
 <div *ngIf="this.loader.getLoading()" class="cssload-container">
     <div class="cssload-speeding-wheel"></div>
-    <!-- <div *ngIf="jobLog" class="box has-background-light mt-3" style="max-height: 200px; overflow-y: auto;">
-        <pre style="font-size: 0.9em; color: #555;">{{ jobLog }}</pre>
-    </div> -->
+    <div *ngIf="this.loader.jobLog" class="job-log-text">
+        <pre>{{ this.loader.jobLog }}</pre>
+    </div>
 </div>
