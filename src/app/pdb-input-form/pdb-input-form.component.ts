@@ -211,5 +211,7 @@ export class PdbInputFormComponent {
         if (y !== -1 && x !== -1) z[y][x] = e.energy;
       }
     }
+
+    this.globalService.showHeatmap$.next();
   }
 }

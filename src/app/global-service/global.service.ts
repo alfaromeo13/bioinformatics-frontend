@@ -253,6 +253,11 @@ export class GlobalService {
         this.stage.autoView();
         this.animateZoom$.next();
         this.availableChains = this.getAvailableChains();
+
+        setTimeout(() => {
+            this.scrollRequest$.next();
+        }, 300);
+
         this.loader.setLoading(false);
     }
 
