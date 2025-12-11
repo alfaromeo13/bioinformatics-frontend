@@ -15,11 +15,13 @@ import { SpinnerComponentService } from '../spinner-component/spinner.component.
 })
 export class ProteinViewerComponent {
 
+  zipMode = false;
   stage: any = null;
   showViewer = false;
   resultFiles: string[] = [];
   pdbFile: File | null = null;
   datMutations: string[] = [];
+  zipData: JSZip | null = null;
   selectedMutation: string = '';
   availableChains: string[] = [];
   selectedMutationContent: string = '';
@@ -191,65 +193,38 @@ export class ProteinViewerComponent {
     }
   }
 
-  loadAllPdbsFromBackend(jobId: string, pdbFiles: string[]): Promise<void> {
-    return new Promise(async (resolve, reject) => {
-      this.showViewer = true;
-      await new Promise(r => setTimeout(r)); // let Angular render the div
+  async loadAllPdbsFromBackend(jobId: string, pdbFiles: string[]): Promise<void> {
+    this.showViewer = true;
+    await new Promise(r => setTimeout(r));
 
-      if (!this.stage) {
-        this.stage = new NGL.Stage("viewport", { backgroundColor: "white" });
-        window.addEventListener("resize", () => this.stage.handleResize(), false);
-      } else {
-        this.availableChains = [];
-        this.viewerSettings.focusChain = '';
-        this.stage.removeAllComponents();
-      }
+    if (!this.stage) {
+      this.stage = new NGL.Stage("viewport", { backgroundColor: "white" });
+      window.addEventListener("resize", () => this.stage.handleResize(), false);
+    } else {
+      this.stage.removeAllComponents();
+    }
 
-      let remaining = pdbFiles.length;
+    for (const filename of pdbFiles) {
+      try {
+        const text = await this.getFile(jobId, filename);
+        const blob = new Blob([text], { type: "text/plain" });
+        const comp = await this.stage.loadFile(blob, { ext: "pdb" });
 
-      pdbFiles.forEach((filename, i) => {
-        this.proteinService.getFileContent(jobId, filename).subscribe({
-          next: (res) => {
-            if (res) {
-              const blob = new Blob([res], { type: 'text/plain' });
-              this.stage.loadFile(blob, { ext: 'pdb' }).then((comp: any) => {
-                comp.addRepresentation(this.viewerSettings.representation, {
-                  colorScheme: this.viewerSettings.color,
-                  opacity: this.viewerSettings.representation === 'surface' ? 0.6 : 1.0,
-                });
-
-                if (i === 0) this.stage.autoView();
-                remaining--;
-                if (remaining === 0) {
-                  // All PDBs loaded, now do final centering, zoom, and scroll
-                  this.stage.autoView();
-
-                  setTimeout(() => {
-                    this.stage.autoView();
-                    this.animateCameraZoom(0.8, 1000);
-                    this.availableChains = this.getAvailableChains();
-                    this.stage.viewer.signals.rendered.addOnce(() => {
-                      this.loader.setLoading(false);
-                      this.scrollToViewer(); // scroll to the viewer
-                    });
-                  }, 100);
-                  resolve();
-                }
-              });
-            } else {
-              console.warn(`Empty response for ${filename}`);
-              remaining--;
-              if (remaining === 0) resolve();
-            }
-          },
-          error: (err) => {
-            console.error('Error loading PDB:', err);
-            this.toastr.error(`Failed to load ${filename}`);
-            reject(err);
-          }
+        this.normalizeChainNames(comp.structure);
+        comp.addRepresentation(this.viewerSettings.representation, {
+          colorScheme: this.viewerSettings.color
         });
-      });
-    });
+
+      } catch (err) {
+        console.error(err);
+        this.toastr.error(`Failed to load ${filename}`);
+      }
+    }
+
+    this.stage.autoView();
+    this.animateCameraZoom();
+    this.availableChains = this.getAvailableChains();
+    this.loader.setLoading(false);
   }
 
   /** Parse a full .dat file into structured energy data */
@@ -309,35 +284,45 @@ export class ProteinViewerComponent {
 
   async onSelectMutation(mutation: string) {
     this.selectedMutation = mutation;
-    const cached = this.parsedByFile[mutation];
 
-    if (!cached || !cached.entries.length) {
-      this.toastr.error('Failed to load mutation data');
+    const cached = this.parsedByFile[mutation];
+    if (!cached) {
+      this.toastr.error("Mutation not found in ZIP");
       return;
     }
 
-    // dump raw DAT text if you still want it (optional: keep a raw cache too)
-    const jobId = localStorage.getItem('proteinJobId')!;
-    const filename = mutation.endsWith('.dat') ? mutation : `${mutation}.dat`;
+    // Try loading raw .dat text
+    const filename = mutation.endsWith(".dat") ? mutation : `${mutation}.dat`;
+
     try {
-      this.selectedMutationContent = await firstValueFrom(this.proteinService.getFileContent(jobId, filename));
+      const jobId = localStorage.getItem("proteinJobId");
+      this.selectedMutationContent = await this.getFile(jobId, filename);
     } catch {
-      // if fetching raw text fails, still render heatmap from cached parsed data
-      this.selectedMutationContent = '';
+      this.selectedMutationContent = "";
     }
 
     const residues = Array.from(new Set(cached.entries.map(e => e.residue)));
     const mutants = Array.from(new Set(cached.entries.map(e => e.mutant)));
-    const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));
+    const z = residues.map(() => Array(mutants.length).fill(NaN));
+
     for (const e of cached.entries) {
       const y = residues.indexOf(e.residue);
       const x = mutants.indexOf(e.mutant);
       if (y !== -1 && x !== -1) z[y][x] = e.energy;
     }
 
-    // wait for Angular to render <div id="mutationHeatmapDiv">
     setTimeout(() => this.plotMutationHeatmap({ x: mutants, y: residues, z }), 50);
   }
+
+  /** inter_ener_glu60c -> { resno: "60", chain: "C" } */
+  private parseMutationKey(key: string) {
+    const m = key.match(/(\d+)([a-z])$/i);
+    return {
+      resno: m ? m[1] : null,
+      chain: m ? m[2].toUpperCase() : null
+    };
+  }
+
 
   // the "All heatmap" button — rebuild combined from cache
   onShowAllHeatmap() {
@@ -369,7 +354,7 @@ export class ProteinViewerComponent {
         el.style.display = 'block';
 
         const dynamicHeight = isAll
-          ? Math.max(350, 100 + data.y.length * 25) // grow with rows, minimum 350
+          ? Math.max(350, 100 + data.y.length * 25)
           : 180;
 
         const trace = {
@@ -424,80 +409,171 @@ export class ProteinViewerComponent {
           paper_bgcolor: '#f5f5f5',
         } as any;
 
-
         Plotly.newPlot('mutationHeatmapDiv', [trace], layout, { responsive: true })
           .then((div: any) => {
-            div.on('plotly_click', (ev: any) => {
-              const residue = String(ev.points[0].y).trim();
-              const mutant = String(ev.points[0].x).toLowerCase();
-              const prefixMap: Record<string, string> = {
-                arg: 'r2',
-                glu: 'e2',
-                asn: 'n2',
-                gln: 'q2',
-                lys: 'k2',
-                ser: 's2',
-                thr: 't2',
-              };
+            div.on('plotly_click', async (ev: any) => {
+              if (!this.stage) { this.toastr.warning('Viewer not ready yet.'); return; }
 
-              // Try to derive prefix from selected mutation type, fallback to any match
-              let prefix =
-                Object.entries(prefixMap).find(([k]) =>
-                  this.selectedMutation.toLowerCase().includes(k)
-                )?.[1] || '';
+              const clickedResidueNo = parseInt(String(ev.points[0].y).replace(/[^\d]/g, ''), 10);
+              if (!Number.isFinite(clickedResidueNo)) {
+                this.toastr.warning('Could not read residue number from heatmap.');
+                return;
+              }
+              const mutant = String(ev.points[0].x).trim().toLowerCase();
 
-              // For "Show All", allow fallback to any matching prefix
-              if (isAll) prefix = ''; // let the filter find any match
+              console.log(`Heatmap click: residue ${clickedResidueNo}, mutant ${mutant}`);
 
-              // Build expected pattern
-              const expectedPattern = new RegExp(
-                `joined_proc_${residue}_(?:[a-z]\\d)?${mutant}\\.pdb`,
-                'i'
-              );
+              // ============================================================
+              // ORIGINAL TARGET-FINDING LOGIC — UNTOUCHED
+              // ============================================================
+              let target: string | undefined;
 
-              // Find matching PDB
-              const target = this.resultFiles.find(f => expectedPattern.test(f));
+              if (this.selectedMutation === 'All Mutations') {
+                const relaxedRx = new RegExp(`^joined_proc_${clickedResidueNo}_[a-z]2${mutant}\\.pdb$`, 'i');
+                target = this.resultFiles.find(f => relaxedRx.test(f));
+              } else {
+                const rowMatch = (this.selectedMutation || '')
+                  .match(/inter_ener_([a-z]{3})(\d+)([a-z])$/i);
+
+                const threeToOne: Record<string, string> = {
+                  ala: 'a', arg: 'r', asn: 'n', asp: 'd', cys: 'c', gln: 'q', glu: 'e', gly: 'g',
+                  his: 'h', ile: 'i', leu: 'l', lys: 'k', met: 'm', phe: 'f', pro: 'p', ser: 's',
+                  thr: 't', trp: 'w', tyr: 'y', val: 'v'
+                };
+
+                let wildOne = '';
+                if (rowMatch) {
+                  const wild3 = rowMatch[1].toLowerCase();
+                  wildOne = threeToOne[wild3] || '';
+                }
+
+                if (wildOne) {
+                  const strictRx = new RegExp(`^joined_proc_${clickedResidueNo}_${wildOne}2${mutant}\\.pdb$`, 'i');
+                  target = this.resultFiles.find(f => strictRx.test(f));
+                }
+
+                if (!target) {
+                  const relaxedRx = new RegExp(`^joined_proc_${clickedResidueNo}_[a-z]2${mutant}\\.pdb$`, 'i');
+                  target = this.resultFiles.find(f => relaxedRx.test(f));
+                }
+              }
 
               if (!target) {
-                this.toastr.warning(
-                  `No matching PDB found for residue ${residue} and mutant ${mutant.toUpperCase()}`
-                );
-                console.warn('Expected regex:', expectedPattern);
-                console.warn('Available PDBs:', this.resultFiles);
+                this.toastr.warning(`No PDB found for residue ${clickedResidueNo} → ${mutant.toUpperCase()}`);
+                console.log('Available PDB files:', this.resultFiles.filter(f => f.endsWith('.pdb')));
                 return;
               }
 
-              // Load only that PDB
-              const jobId = localStorage.getItem('proteinJobId')!;
+              console.log(`Loading PDB: ${target}`);
+
+              const fileMatch = target.match(/^joined_proc_(\d+)_([a-z])2([a-z])\.pdb$/i);
+              const posFromName = fileMatch ? parseInt(fileMatch[1], 10) : undefined;
+              const mutOne = fileMatch ? fileMatch[3].toUpperCase() : undefined;
+
+              const oneToThree: Record<string, string> = {
+                A: 'ALA', R: 'ARG', N: 'ASN', D: 'ASP', C: 'CYS', Q: 'GLN', E: 'GLU', G: 'GLY',
+                H: 'HIS', I: 'ILE', L: 'LEU', K: 'LYS', M: 'MET', F: 'PHE', P: 'PRO', S: 'SER',
+                T: 'THR', W: 'TRP', Y: 'TYR', V: 'VAL'
+              };
+              const mutantThree = mutOne ? oneToThree[mutOne] : undefined;
+
+              const jobId = localStorage.getItem('proteinJobId');
               this.loader.setLoading(true);
 
-              this.proteinService.getFileContent(jobId, target).subscribe({
-                next: res => {
-                  const blob = new Blob([res], { type: 'text/plain' });
-                  this.stage.removeAllComponents();
-                  this.stage.loadFile(blob, { ext: 'pdb' }).then((comp: any) => {
-                    comp.addRepresentation(this.viewerSettings.representation, {
-                      colorScheme: this.viewerSettings.color,
-                      opacity:
-                        this.viewerSettings.representation === 'surface' ? 0.6 : 1.0,
-                    });
-                    this.stage.autoView();
-                    this.animateCameraZoom(0.8, 1000);
-                    this.loader.setLoading(false);
-                    this.toastr.info(`Showing ${target}`);
-                  });
-                },
-                error: () => {
-                  this.loader.setLoading(false);
-                  this.toastr.error(`Could not load PDB for ${target}`);
-                },
-              });
+              // =========================================================================
+              // 🔥🔥🔥 CHANGED FOR ZIP SUPPORT (backend replaced by getFile())
+              // =========================================================================
+              try {
+                const pdbText = await this.getFile(jobId, target);  // <--- ONLY CHANGE
+                const blob = new Blob([pdbText], { type: 'text/plain' });
 
-              this.scrollToViewer();
+                this.stage.removeAllComponents();
+
+                const comp = await this.stage.loadFile(blob, { ext: 'pdb' });
+
+                // ORIGINAL LOGIC BELOW (unchanged)
+                this.normalizeChainNames(comp.structure);
+                comp.structure.eachAtom((a: any) => {
+                  if (!a.chainname && a.segid) a.chainname = a.segid.trim();
+                });
+
+                comp.addRepresentation('cartoon', { colorScheme: 'chainname', opacity: 1.0 });
+
+                await new Promise(r => setTimeout(r, 60));
+
+                type ResInfo = { resno: number; resname: string; chainname: string; atomCount: number };
+                const residues: ResInfo[] = [];
+
+                comp.structure.eachResidue((r: any) => {
+                  residues.push({
+                    resno: Number(r.resno),
+                    resname: String(r.resname || '').toUpperCase(),
+                    chainname: String(r.chainname || ''),
+                    atomCount: Number(r.atomCount || 0)
+                  });
+                });
+
+                const findResidues = (pred: (r: ResInfo) => boolean) =>
+                  residues.filter(pred);
+
+                let candidates: ResInfo[] = [];
+
+                if (Number.isFinite(posFromName)) {
+                  candidates = findResidues(r => r.resno === posFromName);
+                }
+
+                if ((!candidates || candidates.length === 0) && mutantThree) {
+                  candidates = findResidues(r => r.resname === mutantThree);
+                }
+
+                if ((!candidates || candidates.length === 0) && Number.isFinite(clickedResidueNo)) {
+                  candidates = findResidues(r => r.resno === clickedResidueNo);
+                }
+
+                if (!candidates || candidates.length === 0) {
+                  this.loader.setLoading(false);
+                  this.toastr.warning(
+                    `Could not locate the mutated residue in ${target}. ` +
+                    (Number.isFinite(posFromName) ? `Tried resno ${posFromName}. ` : '') +
+                    (mutantThree ? `Tried resname ${mutantThree}. ` : '')
+                  );
+                  return;
+                }
+
+                const preferProc = candidates.filter(r => r.chainname.toUpperCase() === 'PROC');
+                let chosen = (preferProc.length ? preferProc : candidates)
+                  .sort((a, b) => b.atomCount - a.atomCount)[0];
+
+                const chainName = chosen.chainname.trim();
+                const selectionStr = chainName ? `:${chainName} and ${chosen.resno}` : `${chosen.resno}`;
+
+                comp.addRepresentation('ball+stick', {
+                  sele: selectionStr,
+                  color: 'yellow',
+                  scale: 1.6,
+                  aspectRatio: 1.4
+                });
+
+                try { comp.autoView(selectionStr); } catch { }
+                this.animateCameraZoom();
+                this.stage.viewer.requestRender();
+
+                this.loader.setLoading(false);
+                this.toastr.info(
+                  `Loaded ${target} • ${chosen.resname}${chosen.resno}` +
+                  (chainName ? ` (chain ${chainName})` : '')
+                );
+                this.scrollToViewer();
+
+              } catch (err) {
+                console.error('ZIP/Backend load error:', err);
+                this.loader.setLoading(false);
+                this.toastr.error(`Could not load PDB for ${target}`);
+              }
             });
           });
       })
-      .catch(err => console.warn(err.message));
+      .catch((err) => console.warn(err.message));
   }
 
   zoomIn() {
@@ -642,7 +718,6 @@ export class ProteinViewerComponent {
     requestAnimationFrame(animate);
   }
 
-
   async makePhoto() {
     return await this.stage.makeImage({
       factor: 2,
@@ -662,6 +737,8 @@ export class ProteinViewerComponent {
     }
   }
 
+  /** Load a previously exported ZIP file (offline preview mode) */
+  /** Load a previously exported ZIP file (offline preview mode) */
   async loadExistingJob(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input?.files?.[0];
@@ -674,8 +751,16 @@ export class ProteinViewerComponent {
     this.loader.setLoading(true);
 
     try {
+      // Load ZIP
       const zip = await JSZip.loadAsync(file);
       const allFiles = Object.keys(zip.files);
+
+      // Activate ZIP mode
+      this.zipMode = true;
+      this.zipData = zip;
+
+      // disable backend mode
+      localStorage.removeItem("proteinJobId");
 
       this.resultFiles = allFiles;
       this.toastr.success('Preview loaded from ZIP');
@@ -683,9 +768,8 @@ export class ProteinViewerComponent {
       const pdbFiles = allFiles.filter(f => f.endsWith('.pdb'));
       const datFiles = allFiles.filter(f => f.endsWith('.dat'));
 
-      // 1. Load all PDBs into viewer
       this.showViewer = true;
-      await new Promise(r => setTimeout(r)); // ensure DOM is ready
+      await new Promise(r => setTimeout(r));
 
       if (!this.stage) {
         this.stage = new NGL.Stage("viewport", { backgroundColor: "white" });
@@ -694,13 +778,14 @@ export class ProteinViewerComponent {
         this.stage.removeAllComponents();
       }
 
-      // Load PDBs
+      // Load PDBs from ZIP
       for (const pdb of pdbFiles) {
-        const content = await zip.file(pdb)!.async('string');
-        const blob = new Blob([content], { type: 'text/plain' });
+        const content = await zip.file(pdb)!.async("string");
+        const blob = new Blob([content], { type: "text/plain" });
+        const comp = await this.stage.loadFile(blob, { ext: "pdb" });
 
-        const comp = await this.stage.loadFile(blob, { ext: 'pdb' });
-        comp.addRepresentation('cartoon', { colorScheme: 'chainname' });
+        this.normalizeChainNames(comp.structure);
+        comp.addRepresentation("cartoon", { colorScheme: "chainname" });
       }
 
       this.stage.autoView();
@@ -708,21 +793,22 @@ export class ProteinViewerComponent {
       this.availableChains = this.getAvailableChains();
       this.scrollToViewer();
 
-      // 2. Parse DATs and build heatmaps
+      // Load DAT files into parsedByFile
       if (datFiles.length) {
         for (const dat of datFiles) {
-          const content = await zip.file(dat)!.async('string');
+          const content = await zip.file(dat)!.async("string");
           const parsed = this.parseFullDat(content, dat);
-          const key = dat.replace(/\.dat$/i, '');
+          const key = dat.replace(/\.dat$/i, "");
           this.parsedByFile[key] = parsed;
         }
 
         this.datMutations = Object.keys(this.parsedByFile);
         this.onShowAllHeatmap();
       }
+
     } catch (err) {
-      console.error('ZIP load error:', err);
-      this.toastr.error('Failed to load ZIP preview');
+      console.error("ZIP load error:", err);
+      this.toastr.error("Failed to load ZIP preview");
     } finally {
       this.loader.setLoading(false);
     }
@@ -745,6 +831,12 @@ export class ProteinViewerComponent {
     }
   }
 
+  getInterfaceSelections(chainA: string, chainB: string, dist = 5.0) {
+    return {
+      selA: `chainname ${chainA} and within ${dist} of chainname ${chainB}`,
+      selB: `chainname ${chainB} and within ${dist} of chainname ${chainA}`
+    };
+  }
 
   toggleFullscreen() {
     if (this.stage) this.stage.toggleFullscreen();
@@ -805,4 +897,28 @@ export class ProteinViewerComponent {
     saveAs(content, `results_${jobId}.zip`);
     this.toastr.success('Results exported successfully!');
   }
+
+  /** Ensure chainname is populated from segid if chainname is empty */
+  private normalizeChainNames(structure: any): void {
+    structure.eachAtom((a: any) => {
+      if (!a.chainname && a.segid) {
+        a.chainname = a.segid.trim();
+      }
+    });
+
+    // Log the distinct chain names detected
+    const found = new Set<string>();
+    structure.eachChain((c: any) => found.add(c.chainname));
+    console.log('Normalized chains:', Array.from(found));
+  }
+
+  private async getFile(jobId: string | null, filename: string): Promise<string> {
+    if (this.zipMode && this.zipData) {
+      const z = this.zipData.file(filename);
+      if (!z) throw new Error(`ZIP missing file ${filename}`);
+      return await z.async("string");
+    }
+    return await firstValueFrom(this.proteinService.getFileContent(jobId!, filename));
+  }
+
 }

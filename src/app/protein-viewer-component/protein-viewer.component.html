@@ -13,7 +13,7 @@
     <div class="field is-grouped is-grouped-centered file-upload-group">
       <div class="control">
         <label class="label has-text-grey-light has-text-centered">Upload PDB File</label>
-        <div class="file is-primary has-name">
+        <div class="file is-primary">
           <label class="file-label">
             <input class="file-input" type="file" accept=".pdb" (change)="onFileChange($event)" />
             <span class="file-cta">
@@ -63,12 +63,16 @@
       [disabled]="form.detect_interface" />
   </div>
 
+  <!-- 
+  TODO: IMPLEMENT INTERFACE DETECTION LOGIC IN NEXT VERSION 
+
   <div class="form-section">
     <label class="checkbox has-text-grey-light">
-      <input type="checkbox" [(ngModel)]="form.detect_interface" (click)="onCheckBox()" />
+      <input type="checkbox" [(ngModel)]="form.detect_interface" (click)="onCheckBox()" [disabled]="true" />
       Detect Interface
     </label>
-  </div>
+  </div> 
+  -->
 
   <button class="button is-primary" (click)="onGoClick()" style="margin-bottom: 28px;">Go</button>
 
@@ -227,7 +231,8 @@
 
   <div class="has-text-centered" *ngIf="showViewer" style="margin-top: 30px; margin-bottom: 20px;">
     <div class="is-inline-block">
-      <button class="button is-primary" (click)="exportResults()" style="font-size:1rem; padding: 1.25em 2em;">
+      <button class="button is-primary" *ngIf="!zipMode" (click)="exportResults()"
+        style="font-size:1rem; padding: 1.25em 2em;">
         <span class="icon">
           <i class="fas fa-download"></i>
         </span>
