@@ -12,8 +12,10 @@ import { SpinnerComponentService } from '../spinner-component/spinner.component.
 })
 export class PdbInputFormComponent {
 
+  /** Stores the uploaded PDB file */
   pdbFile: File | null = null;
 
+  /** User input fields for backend API submission */
   form = {
     protein_chains: '',
     partner_chains: '',
@@ -28,7 +30,10 @@ export class PdbInputFormComponent {
     private proteinService: ProteinHttpService,
   ) { }
 
-
+  /**
+   * Handles file browsing input.
+   * Accepts only .pdb files and stores them locally.
+   */
   onFileChange(event: any) {
     const file = event.target.files[0];
     if (file && file.name.endsWith('.pdb')) {
@@ -38,38 +43,47 @@ export class PdbInputFormComponent {
     }
   }
 
-  // TODO: Isn't implemented in this version yet
+  /**
+   * Toggles "detect interface" mode.
+   * When enabled, manual mutation input is cleared.
+   */
   onCheckBox() {
     this.form.detect_interface = !this.form.detect_interface;
     this.form.mutations = '';
   }
 
+  /**
+   * Entry point when the user clicks "GO".
+   * Validates input fields, uploads form + PDB to backend,
+   * then begins polling for results.
+   */
   onGoClick() {
+    // --- Validate user input ----
     if (!this.pdbFile) {
       this.toastr.warning('Please upload a PDB file.');
       return;
     }
-
     if (!this.form.protein_chains.trim()) {
       this.toastr.warning('Protein Chains must be entered.');
       return;
     }
-
     if (!this.form.partner_chains.trim()) {
       this.toastr.warning('Partner Chains must be entered.');
       return;
     }
-
     if (!this.form.mutations.trim() && !this.form.detect_interface) {
       this.toastr.warning('Please provide Mutations or enable Detect Interface.');
       return;
     }
 
+    // Start backend request
     this.loader.setLoading(true);
 
     this.proteinService.postData(this.form, this.pdbFile).subscribe({
       next: (res) => {
         this.pdbFile = null;
+
+        // Store job ID and begin polling for results
         if (res.job_id) {
           localStorage.setItem('proteinJobId', res.job_id);
           this.waitForResults(res.job_id);
@@ -83,16 +97,22 @@ export class PdbInputFormComponent {
     });
   }
 
+  /**
+   * Retrieves the tail-end of backend log output.
+   * Keeps only the last 15 lines for UI readability.
+   */
   private async fetchJobLog(jobId: string) {
     try {
       const res: any = await firstValueFrom(this.proteinService.getJobLog(jobId));
       if (res && res.log) {
         let log = res.log.trim();
         const lines = log.split('\n');
+
         if (lines.length > 15) {
-          log = lines.slice(-15).join('\n'); // keeps only the last 15 lines
-          log = '... (truncated)\n' + log;   // optional: indicate truncation
+          log = lines.slice(-15).join('\n');
+          log = '... (truncated)\n' + log;
         }
+
         this.loader.jobLog = log;
       }
     } catch (err) {
@@ -100,61 +120,86 @@ export class PdbInputFormComponent {
     }
   }
 
+  /**
+   * Polls backend every N seconds to check when job is complete.
+   * When complete:
+   *  - retrieves file list
+   *  - loads PDBs into NGL viewer
+   *  - parses and loads DAT files
+   */
   async waitForResults(jobId: string, interval = 15000): Promise<void> {
 
-    let timeoutHandle: any; // store the timeout reference
+    let timeoutHandle: any;
 
     const check = async () => {
       try {
-
+        // Refresh log output
         await this.fetchJobLog(jobId);
 
+        // Get job status from backend
         const res = await firstValueFrom(this.proteinService.getResultList(jobId));
 
         if (res.status === 'completed') {
 
           clearTimeout(timeoutHandle);
+
+          // Save filenames globally
           this.globalService.resultFiles = res.files;
           this.toastr.success('Results ready!');
 
           const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
           const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
 
-          // Wait for both PDBs and DATs to finish loading
+          // Load all PDB structures into viewer
           await this.globalService.loadAllPdbsFromBackend(jobId, pdbFiles);
-          if (datFiles.length) await this.loadDatFilesAndPlot(jobId, datFiles);
 
+          // Parse and store .dat mutation files
+          if (datFiles.length) {
+            await this.loadDatFilesAndPlot(jobId, datFiles);
+          }
+
+          // End UI loading indicator
           this.loader.setLoading(false);
           this.loader.jobLog = '';
           return;
         }
 
-        // Schedule next check
+        // Not completed → schedule next poll
         timeoutHandle = setTimeout(check, interval);
 
       } catch (err: any) {
         console.error('Polling error:', err);
-        clearTimeout(timeoutHandle); // also clear on error
+        clearTimeout(timeoutHandle);
         this.loader.setLoading(false);
         this.toastr.error('Error checking results');
       }
     };
+
     check();
   }
+
+  /**
+   * Loads all .dat files for the finished job and parses them into the
+   * mutation-analysis cache used for heatmaps.
+   */
   async loadDatFilesAndPlot(jobId: string, datFiles: string[]): Promise<void> {
     const allData: any[] = [];
 
+    // Load & parse each DAT file individually
     for (const file of datFiles) {
       const text = await firstValueFrom(this.proteinService.getFileContent(jobId, file));
       const parsed = this.globalService.parseFullDat(text, file);
+
       allData.push(parsed);
+
       const key = file.replace(/\.dat$/i, '');
       this.globalService.parsedByFile[key] = parsed;
     }
 
+    // Expose mutation keys for the MutationAnalysisComponent
     this.globalService.datMutations = Object.keys(this.globalService.parsedByFile);
 
-    // Build combined heatmap once (big overview)
+    // Pre-build a combined overview heatmap dataset (optional)
     const residues = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.residue))));
     const mutants = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.mutant))));
     const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));

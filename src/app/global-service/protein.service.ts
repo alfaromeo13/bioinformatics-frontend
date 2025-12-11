@@ -7,6 +7,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 @Injectable({ providedIn: 'root' })
 export class ProteinHttpService {
 
+  /** Base URL of the backend API */
   public baseUrl = 'http://localhost:5000';
 
   constructor(
@@ -43,12 +44,15 @@ export class ProteinHttpService {
     });
   }
 
-  /** get the running logs */
+  /** Retrieves the live job log output from backend for display. */
   getJobLog(jobId: string) {
     return this.http.get(`${this.baseUrl}/get-log/${jobId}`);
   }
 
-  /** Common error handler */
+  /**
+   * Unified HTTP error handler. Displays relevant messages using Toastr
+   * and returns a failed observable.
+   */
   private handleError(error: HttpErrorResponse) {
     queueMicrotask(() => {
       if (error.status === 400) this.toastr.warning('Please fill in all required fields');

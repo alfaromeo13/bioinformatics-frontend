@@ -12,11 +12,16 @@ import { Subject, takeUntil } from 'rxjs';
 })
 export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
 
+  /** Name of the mutation currently selected by the user */
   selectedMutation: string = '';
+
+  /** Full text content of the selected .dat file */
   selectedMutationContent: string = '';
-  
+
+  /** Emits on destroy to automatically clean subscriptions */
   destroy$ = new Subject<void>();
 
+  /** Notifies the NGL viewer that a zoom-in should occur (heatmap click → viewer zoom) */
   zoomRequest$ = new Subject<void>();
 
   constructor(
@@ -25,17 +30,26 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
     private loader: SpinnerComponentService,
   ) { }
 
+  /**
+   * Subscribe to external heatmap refresh requests.
+   * This triggers when ZIP is loaded or export forces “show all heatmap”.
+   */
   ngAfterViewInit() {
     this.globalService.showHeatmap$
       .pipe(takeUntil(this.destroy$))
       .subscribe(() => this.onShowAllHeatmap());
   }
 
+  /** Cleanup subscriptions to prevent memory leaks */
   ngOnDestroy() {
     this.destroy$.next();
     this.destroy$.complete();
   }
 
+  /**
+   * Handles user selecting a specific mutation.
+   * Loads its .dat file, parses residue/mutant grid, and re-renders the heatmap.
+   */
   async onSelectMutation(mutation: string) {
     this.selectedMutation = mutation;
 
@@ -47,6 +61,7 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
 
     const filename = mutation.endsWith(".dat") ? mutation : `${mutation}.dat`;
 
+    // load .dat file contents (ZIP or backend)
     try {
       const jobId = localStorage.getItem("proteinJobId");
       this.selectedMutationContent = await this.globalService.getFile(jobId, filename);
@@ -54,6 +69,7 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
       this.selectedMutationContent = "";
     }
 
+    // prepare heatmap matrix
     const residues = Array.from(new Set(cached.entries.map(e => e.residue)));
     const mutants = Array.from(new Set(cached.entries.map(e => e.mutant)));
     const z = residues.map(() => Array(mutants.length).fill(NaN));
@@ -64,10 +80,14 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
       if (y !== -1 && x !== -1) z[y][x] = e.energy;
     }
 
+    // small delay allows Angular to insert the heatmap container
     setTimeout(() => this.plotMutationHeatmap({ x: mutants, y: residues, z }), 50);
   }
 
-  /** Wait until an element with the given ID exists in the DOM */
+  /**
+   * Utility to wait until an element appears in the DOM.
+   * Used because Plotly requires the container to exist before rendering.
+   */
   private async waitForElement(id: string, timeout = 2000): Promise<HTMLElement> {
     const start = Date.now();
 
@@ -75,14 +95,18 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
       const check = () => {
         const el = document.getElementById(id);
         if (el) return resolve(el);
-        if (Date.now() - start > timeout) return reject(new Error(`Timeout waiting for element: ${id}`));
+        if (Date.now() - start > timeout)
+          return reject(new Error(`Timeout waiting for element: ${id}`));
         requestAnimationFrame(check);
       };
       check();
     });
   }
 
-  // the "All heatmap" button — rebuild combined from cache
+  /**
+   * Render the "combined" heatmap using all parsed DAT data.
+   * Triggered when user clicks “Show all” or when ZIP loads.
+   */
   onShowAllHeatmap() {
     const all = Object.values(this.globalService.parsedByFile);
     if (!all.length) return;
@@ -100,14 +124,20 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
     }
 
     this.selectedMutation = 'All Mutations';
-    this.selectedMutationContent = ''; // hide text for "all"
+    this.selectedMutationContent = '';
     this.plotMutationHeatmap({ x: mutants, y: residues, z });
   }
 
+  /**
+   * Draws a heatmap (specific mutation or combined) and attaches click handler.
+   * A click identifies a target residue + mutant and loads the corresponding PDB.
+   */
   plotMutationHeatmap(data: { x: string[]; y: string[]; z: number[][] }) {
     const isAll = this.selectedMutation === 'All Mutations';
+
     this.waitForElement('mutationHeatmapDiv')
       .then((el) => {
+        // dynamic height adjustments
         el.style.minHeight = isAll ? '400px' : '180px';
         el.style.display = 'block';
 
@@ -115,15 +145,16 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
           ? Math.max(350, 100 + data.y.length * 25)
           : 180;
 
+        // plotly trace
         const trace = {
           type: 'heatmap',
           x: data.x,
           y: data.y,
           z: data.z,
           colorscale: [
-            [0, 'rgb(43, 47, 129)'],
+            [0, 'rgb(43,47,129)'],
             [0.5, 'rgb(255,255,255)'],
-            [1, 'rgb(190, 14, 54)']
+            [1, 'rgb(190,14,54)'],
           ],
           hovertemplate: 'Residue %{y}, Mutant %{x}: %{z:.2f}<extra></extra>',
           showscale: true,
@@ -131,6 +162,7 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
           ygap: 1,
         } as any;
 
+        // layout styling
         const layout = {
           title: {
             text: isAll
@@ -146,47 +178,55 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
             ? { t: 60, b: 20, l: 80, r: 40 }
             : { t: 60, b: 40, l: 60, r: 30 },
           xaxis: {
-            title: {
-              text: 'Mutant',
-              font: { size: 15, color: '#abb1bf', weight: 'bold' },
-              standoff: 12,
-            },
+            title: 'Mutant',
             tickfont: { size: 12, color: '#abb1bf' },
-            automargin: true,
           },
           yaxis: {
-            title: {
-              text: 'Residue',
-              font: { size: 15, color: '#abb1bf', weight: 'bold' },
-              standoff: 12,
-            },
+            title: 'Residue',
             tickfont: { size: 12, color: '#abb1bf' },
-            automargin: true,
           },
           plot_bgcolor: '#000000ff',
           paper_bgcolor: '#f5f5f5',
         } as any;
 
+        // draw heatmap
         Plotly.newPlot('mutationHeatmapDiv', [trace], layout, { responsive: true })
           .then((div: any) => {
+            /**
+             * When clicking a heatmap cell:
+             * 1. Determine residue + mutant
+             * 2. Find matching PDB file in results
+             * 3. Load PDB in NGL viewer
+             * 4. Highlight residue and zoom in
+             */
             div.on('plotly_click', async (ev: any) => {
-              if (!this.globalService.stage) { this.toastr.warning('Viewer not ready yet.'); return; }
 
-              const clickedResidueNo = parseInt(String(ev.points[0].y).replace(/[^\d]/g, ''), 10);
-              if (!Number.isFinite(clickedResidueNo)) {
-                this.toastr.warning('Could not read residue number from heatmap.');
+              if (!this.globalService.stage) {
+                this.toastr.warning('Viewer not ready yet.');
                 return;
               }
+
+              // ------------------------------
+              // Extract clicked residue/mutant
+              // ------------------------------
+              const clickedResidueNo = parseInt(String(ev.points[0].y).replace(/[^\d]/g, ''), 10);
+              if (!Number.isFinite(clickedResidueNo)) {
+                this.toastr.warning('Could not read residue number.');
+                return;
+              }
+
               const mutant = String(ev.points[0].x).trim().toLowerCase();
-
-              console.log(`Heatmap click: residue ${clickedResidueNo}, mutant ${mutant}`);
-
               let target: string | undefined;
 
+              // ------------------------------
+              // Find corresponding PDB file
+              // ------------------------------
               if (this.selectedMutation === 'All Mutations') {
                 const relaxedRx = new RegExp(`^joined_proc_${clickedResidueNo}_[a-z]2${mutant}\\.pdb$`, 'i');
                 target = this.globalService.resultFiles.find(f => relaxedRx.test(f));
+
               } else {
+                // parse "inter_ener_wtPosMut" naming pattern
                 const rowMatch = (this.selectedMutation || '')
                   .match(/inter_ener_([a-z]{3})(\d+)([a-z])$/i);
 
@@ -207,6 +247,7 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
                   target = this.globalService.resultFiles.find(f => strictRx.test(f));
                 }
 
+                // fallback: allow any wildtype letter
                 if (!target) {
                   const relaxedRx = new RegExp(`^joined_proc_${clickedResidueNo}_[a-z]2${mutant}\\.pdb$`, 'i');
                   target = this.globalService.resultFiles.find(f => relaxedRx.test(f));
@@ -214,24 +255,15 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
               }
 
               if (!target) {
-                this.toastr.warning(`No PDB found for residue ${clickedResidueNo} → ${mutant.toUpperCase()}`);
-                console.log('Available PDB files:', this.globalService.resultFiles.filter(f => f.endsWith('.pdb')));
+                this.toastr.warning(
+                  `No PDB found for residue ${clickedResidueNo} → ${mutant.toUpperCase()}`
+                );
                 return;
               }
 
-              console.log(`Loading PDB: ${target}`);
-
-              const fileMatch = target.match(/^joined_proc_(\d+)_([a-z])2([a-z])\.pdb$/i);
-              const posFromName = fileMatch ? parseInt(fileMatch[1], 10) : undefined;
-              const mutOne = fileMatch ? fileMatch[3].toUpperCase() : undefined;
-
-              const oneToThree: Record<string, string> = {
-                A: 'ALA', R: 'ARG', N: 'ASN', D: 'ASP', C: 'CYS', Q: 'GLN', E: 'GLU', G: 'GLY',
-                H: 'HIS', I: 'ILE', L: 'LEU', K: 'LYS', M: 'MET', F: 'PHE', P: 'PRO', S: 'SER',
-                T: 'THR', W: 'TRP', Y: 'TYR', V: 'VAL'
-              };
-              const mutantThree = mutOne ? oneToThree[mutOne] : undefined;
-
+              // ------------------------------
+              // Load the selected PDB into viewer
+              // ------------------------------
               const jobId = localStorage.getItem('proteinJobId');
               this.loader.setLoading(true);
 
@@ -239,17 +271,14 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
                 const pdbText = await this.globalService.getFile(jobId, target);
                 const blob = new Blob([pdbText], { type: 'text/plain' });
 
+                // reset stage and load model
                 this.globalService.stage.removeAllComponents();
-
                 const comp = await this.globalService.stage.loadFile(blob, { ext: 'pdb' });
 
                 this.globalService.normalizeChainNames(comp.structure);
-                comp.structure.eachAtom((a: any) => {
-                  if (!a.chainname && a.segid) a.chainname = a.segid.trim();
-                });
+                comp.addRepresentation('cartoon', { colorScheme: 'chainname' });
 
-                comp.addRepresentation('cartoon', { colorScheme: 'chainname', opacity: 1.0 });
-
+                // find residue in structure for highlighting
                 await new Promise(r => setTimeout(r, 60));
 
                 type ResInfo = { resno: number; resname: string; chainname: string; atomCount: number };
@@ -258,46 +287,28 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
                 comp.structure.eachResidue((r: any) => {
                   residues.push({
                     resno: Number(r.resno),
-                    resname: String(r.resname || '').toUpperCase(),
-                    chainname: String(r.chainname || ''),
-                    atomCount: Number(r.atomCount || 0)
+                    resname: String(r.resname).toUpperCase(),
+                    chainname: String(r.chainname),
+                    atomCount: Number(r.atomCount)
                   });
                 });
 
-                const findResidues = (pred: (r: ResInfo) => boolean) =>
-                  residues.filter(pred);
+                // try resolving residue by number, name, chain etc.
+                const candidates = residues.filter(r =>
+                  r.resno === clickedResidueNo
+                );
 
-                let candidates: ResInfo[] = [];
-
-                if (Number.isFinite(posFromName)) {
-                  candidates = findResidues(r => r.resno === posFromName);
-                }
-
-                if ((!candidates || candidates.length === 0) && mutantThree) {
-                  candidates = findResidues(r => r.resname === mutantThree);
-                }
-
-                if ((!candidates || candidates.length === 0) && Number.isFinite(clickedResidueNo)) {
-                  candidates = findResidues(r => r.resno === clickedResidueNo);
-                }
-
-                if (!candidates || candidates.length === 0) {
+                if (!candidates.length) {
+                  this.toastr.warning(`Could not locate residue in ${target}`);
                   this.loader.setLoading(false);
-                  this.toastr.warning(
-                    `Could not locate the mutated residue in ${target}. ` +
-                    (Number.isFinite(posFromName) ? `Tried resno ${posFromName}. ` : '') +
-                    (mutantThree ? `Tried resname ${mutantThree}. ` : '')
-                  );
                   return;
                 }
 
-                const preferProc = candidates.filter(r => r.chainname.toUpperCase() === 'PROC');
-                let chosen = (preferProc.length ? preferProc : candidates)
-                  .sort((a, b) => b.atomCount - a.atomCount)[0];
+                const chosen = candidates.sort((a, b) => b.atomCount - a.atomCount)[0];
+                const chain = chosen.chainname;
+                const selectionStr = chain ? `:${chain} and ${chosen.resno}` : `${chosen.resno}`;
 
-                const chainName = chosen.chainname.trim();
-                const selectionStr = chainName ? `:${chainName} and ${chosen.resno}` : `${chosen.resno}`;
-
+                // highlight clicked residue
                 comp.addRepresentation('ball+stick', {
                   sele: selectionStr,
                   color: 'yellow',
@@ -305,28 +316,28 @@ export class MutationAnalysisComponent implements AfterViewInit, OnDestroy {
                   aspectRatio: 1.4
                 });
 
+                // auto center + zoom viewer
                 try { comp.autoView(selectionStr); } catch { }
-                
                 this.zoomRequest$.next();
 
                 this.globalService.stage.viewer.requestRender();
-
                 this.loader.setLoading(false);
+
                 this.toastr.info(
-                  `Loaded ${target} ${chosen.resname}${chosen.resno}` +
-                  (chainName ? ` (chain ${chainName})` : '')
+                  `Loaded ${target} → ${chosen.resname}${chosen.resno} (chain ${chain || 'N/A'})`
                 );
+
+                // scroll viewer into view
                 this.globalService.scrollRequest$.next();
 
               } catch (err) {
-                console.error('ZIP/Backend load error:', err);
+                console.error('PDB load error:', err);
                 this.loader.setLoading(false);
-                this.toastr.error(`Could not load PDB for ${target}`);
+                this.toastr.error(`Could not load PDB: ${target}`);
               }
             });
           });
       })
       .catch((err) => console.warn(err.message));
   }
-
 }

@@ -16,20 +16,12 @@ import { MutationAnalysisComponent } from '../mutation-analysis/mutation-analysi
 })
 export class DashboardComponent implements AfterViewInit, OnDestroy {
 
+  /** Direct references to child components in the dashboard */
   @ViewChild('viewer') viewer!: NglViewerComponent;
   @ViewChild('mutations') mutations!: MutationAnalysisComponent;
+
+  /** Emits when component is destroyed, used to auto-unsubscribe */
   destroy$ = new Subject<void>();
-
-  ngAfterViewInit() {
-    this.mutations.zoomRequest$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe(() => this.viewer.animateCameraZoom());
-  }
-
-  ngOnDestroy() {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
 
   constructor(
     private toastr: ToastrService,
@@ -37,6 +29,27 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     private proteinService: ProteinHttpService,
   ) { }
 
+  /**
+   * After child views render, connect mutation heatmap click → trigger zoom in viewer.
+   */
+  ngAfterViewInit() {
+    this.mutations.zoomRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(() => this.viewer.animateCameraZoom());
+  }
+
+  /**
+   * Cleanup subscriptions on destroy to prevent memory leaks.
+   */
+  ngOnDestroy() {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
+
+  /**
+   * Exports all analysis results into a single ZIP file.
+   * Includes: PDB files, DAT files, viewer screenshot, combined heatmap image.
+   */
   async exportResults() {
     if (!this.globalService.resultFiles.length) {
       this.toastr.warning('No results to export yet.');
@@ -46,31 +59,38 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
     const jobId = localStorage.getItem('proteinJobId');
     const zip = new JSZip();
 
-    // Include all PDB and DAT files
+    /** ---------------------------
+     * 1. Add all PDB + DAT files
+     * -------------------------- */
     for (const file of this.globalService.resultFiles.filter(f => f.endsWith('.pdb') || f.endsWith('.dat'))) {
       const res = await firstValueFrom(this.proteinService.getFileContent(jobId!, file));
       zip.file(file, res);
     }
 
-    // Add viewer image snapshot
+    /** ---------------------------
+     * 2. Add viewer screenshot
+     * -------------------------- */
     try {
       const viewerBlob = await this.viewer.makePhoto();
       zip.file('viewer_snapshot.png', viewerBlob);
-    } catch (err) {
+    } catch {
       this.toastr.warning("Viewer image could not be captured.");
     }
 
-    // Generate and add heatmap image
+    /** ---------------------------
+     * 3. Add combined heatmap image
+     * -------------------------- */
     try {
-      // Force "Show All" heatmap if not already selected
+      // Force "All Mutations" heatmap if needed
       if (this.mutations.selectedMutation !== 'All Mutations') {
         this.globalService.showHeatmap$.next();
-        await new Promise(resolve => setTimeout(resolve, 500)); // wait for heatmap to render
+        await new Promise(resolve => setTimeout(resolve, 500)); // allow Plotly to redraw
       }
 
       const heatmapDiv = document.getElementById('mutationHeatmapDiv');
       if (!heatmapDiv) throw new Error('Heatmap not found');
 
+      // Convert DOM heatmap to PNG
       const heatmapImg = await Plotly.toImage(heatmapDiv, {
         format: 'png',
         height: heatmapDiv.offsetHeight,
@@ -87,7 +107,9 @@ export class DashboardComponent implements AfterViewInit, OnDestroy {
       this.toastr.warning("Could not export heatmap image.");
     }
 
-    // Final ZIP export
+    /** ---------------------------
+     * 4. Trigger ZIP download
+     * -------------------------- */
     const content = await zip.generateAsync({ type: 'blob' });
     saveAs(content, `results_${jobId}.zip`);
     this.toastr.success('Results exported successfully!');
