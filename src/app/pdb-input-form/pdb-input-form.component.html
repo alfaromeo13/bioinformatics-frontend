@@ -1,0 +1,64 @@
+<div class="form-section">
+  <div class="field is-grouped is-grouped-centered file-upload-group">
+    <div class="control">
+      <label class="label has-text-grey-light has-text-centered">Upload PDB File</label>
+      <div class="file is-primary">
+        <label class="file-label">
+          <input class="file-input" type="file" accept=".pdb" (change)="onFileChange($event)" />
+          <span class="file-cta">
+            <span class="file-icon has-text-white">
+              <i class="fas fa-upload"></i>
+            </span>
+            <span class="file-label has-text-white">Choose a PDB File..</span>
+          </span>
+          <span class="file-name" *ngIf="pdbFile">
+            {{ pdbFile.name }}
+          </span>
+        </label>
+      </div>
+    </div>
+
+    <div class="control">
+      <label class="label has-text-grey-light has-text-centered">Preview results</label>
+      <div class="file is-link">
+        <label class="file-label">
+          <input class="file-input" type="file" accept=".zip" (change)="this.globalService.loadExistingJob($event)" />
+          <span class="file-cta">
+            <span class="file-icon">
+              <i class="fas fa-cloud-upload-alt"></i>
+            </span>
+            <span class="file-label">Upload ZIP</span>
+          </span>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="form-section">
+  <label clas="has-text-grey-light">Protein Chains:</label>
+  <input type="text" [(ngModel)]="form.protein_chains" placeholder="e.g. A,B" />
+</div>
+
+<div class="form-section">
+  <label class='has-text-grey-light'>Partner Chains:</label>
+  <input type="text" [(ngModel)]="form.partner_chains" placeholder="e.g. C,D" />
+</div>
+
+<div class="form-section">
+  <label class="has-text-grey-light">Mutations:</label>
+  <input type="text" placeholder="e.g. ARGC59 GLUC60" [(ngModel)]="form.mutations" [disabled]="form.detect_interface" />
+</div>
+
+<!-- 
+  TODO: IMPLEMENT INTERFACE DETECTION LOGIC IN NEXT VERSION 
+
+  <div class="form-section">
+    <label class="checkbox has-text-grey-light">
+      <input type="checkbox" [(ngModel)]="form.detect_interface" (click)="onCheckBox()" [disabled]="true" />
+      Detect Interface
+    </label>
+  </div> 
+  -->
+
+<button class="button is-primary" (click)="onGoClick()" style="margin-bottom: 28px;">Go</button>

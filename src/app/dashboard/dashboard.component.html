@@ -1,0 +1,25 @@
+<div class="container">
+
+  <!-- Upload form for uploading PDB file  -->
+  <app-pdb-input-form></app-pdb-input-form>
+
+  <!-- NGL Viewer section -->
+  <app-ngl-viewer #viewer></app-ngl-viewer>
+
+  <!-- DAT outputs and heatmap visualization -->
+  <app-mutation-analysis #mutations></app-mutation-analysis>
+
+  <!-- Export results button -->
+  <div class="has-text-centered" *ngIf="this.globalService.showViewer" style="margin-top: 30px; margin-bottom: 20px;">
+    <div class="is-inline-block">
+      <button class="button is-primary" *ngIf="!this.globalService.zipMode" (click)="exportResults()"
+        style="font-size:1rem; padding: 1.25em 2em;">
+        <span class="icon">
+          <i class="fas fa-download"></i>
+        </span>
+        <span>Export Results</span>
+      </button>
+    </div>
+  </div>
+
+</div>

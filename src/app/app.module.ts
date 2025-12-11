@@ -4,16 +4,24 @@ import { FormsModule } from '@angular/forms';
 import { AppRoutingModule } from './app-routing.module';
 import { AppComponent } from './app.component';
 import { HttpClientModule } from '@angular/common/http';
-import { ProteinViewerComponent } from './protein-viewer-component/protein-viewer.component';
+import { ProteinViewerComponent } from './protein-viewer/protein-viewer.component';
 import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 import { ToastrModule } from 'ngx-toastr';
 import { SpinnerComponent } from './spinner-component/spinner.component';
+import { DashboardComponent } from './dashboard/dashboard.component';
+import { PdbInputFormComponent } from './pdb-input-form/pdb-input-form.component';
+import { NglViewerComponent } from './ngl-viewer/ngl-viewer.component';
+import { MutationAnalysisComponent } from './mutation-analysis/mutation-analysis.component';
 
 @NgModule({
   declarations: [
     AppComponent,
     ProteinViewerComponent,
-    SpinnerComponent
+    SpinnerComponent,
+    DashboardComponent,
+    PdbInputFormComponent,
+    NglViewerComponent,
+    MutationAnalysisComponent,
   ],
   imports: [
     BrowserModule,

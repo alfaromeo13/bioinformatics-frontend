@@ -1,0 +1,41 @@
+.container {
+  max-width: 800px;
+  margin: 20px auto 40px auto;
+  padding: 1rem;
+  border-radius: 10px;
+  border: 1px solid #ccc;
+  background-color: #f5f5f5;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+label {
+  font-weight: bold;
+  margin-bottom: 0.3rem;
+}
+
+button {
+  width: 100%;
+  padding: 0.7rem;
+  color: white;
+  border: none;
+  font-size: 1rem;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+button:disabled {
+  background-color: #aaa;
+  cursor: not-allowed;
+}
+
+h1 {
+  text-align: center;
+  font-size: 2.5rem;
+  color: #333;
+  margin-bottom: 1.5rem;
+}

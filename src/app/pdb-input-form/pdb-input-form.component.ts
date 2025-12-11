@@ -1,0 +1,170 @@
+import { firstValueFrom } from 'rxjs';
+import { Component } from '@angular/core';
+import { ToastrService } from 'ngx-toastr';
+import { GlobalService } from '../global-service/global.service';
+import { ProteinHttpService } from '../global-service/protein.service';
+import { SpinnerComponentService } from '../spinner-component/spinner.component.service';
+
+@Component({
+  selector: 'app-pdb-input-form',
+  templateUrl: './pdb-input-form.component.html',
+  styleUrl: './pdb-input-form.component.css'
+})
+export class PdbInputFormComponent {
+
+  pdbFile: File | null = null;
+
+  form = {
+    protein_chains: '',
+    partner_chains: '',
+    mutations: '',
+    detect_interface: false
+  };
+
+  constructor(
+    public globalService: GlobalService,
+    private toastr: ToastrService,
+    private loader: SpinnerComponentService,
+    private proteinService: ProteinHttpService,
+  ) { }
+
+
+  onFileChange(event: any) {
+    const file = event.target.files[0];
+    if (file && file.name.endsWith('.pdb')) {
+      this.pdbFile = file;
+    } else {
+      alert("Please upload a valid .pdb file.");
+    }
+  }
+
+  // TODO: Isn't implemented in this version yet
+  onCheckBox() {
+    this.form.detect_interface = !this.form.detect_interface;
+    this.form.mutations = '';
+  }
+
+  onGoClick() {
+    if (!this.pdbFile) {
+      this.toastr.warning('Please upload a PDB file.');
+      return;
+    }
+
+    if (!this.form.protein_chains.trim()) {
+      this.toastr.warning('Protein Chains must be entered.');
+      return;
+    }
+
+    if (!this.form.partner_chains.trim()) {
+      this.toastr.warning('Partner Chains must be entered.');
+      return;
+    }
+
+    if (!this.form.mutations.trim() && !this.form.detect_interface) {
+      this.toastr.warning('Please provide Mutations or enable Detect Interface.');
+      return;
+    }
+
+    this.loader.setLoading(true);
+
+    this.proteinService.postData(this.form, this.pdbFile).subscribe({
+      next: (res) => {
+        this.pdbFile = null;
+        if (res.job_id) {
+          localStorage.setItem('proteinJobId', res.job_id);
+          this.waitForResults(res.job_id);
+        }
+      },
+      error: (err) => {
+        this.loader.setLoading(false);
+        console.error('Error:', err);
+        this.toastr.error('Failed to start job.');
+      }
+    });
+  }
+
+  private async fetchJobLog(jobId: string) {
+    try {
+      const res: any = await firstValueFrom(this.proteinService.getJobLog(jobId));
+      if (res && res.log) {
+        let log = res.log.trim();
+        const lines = log.split('\n');
+        if (lines.length > 15) {
+          log = lines.slice(-15).join('\n'); // keeps only the last 15 lines
+          log = '... (truncated)\n' + log;   // optional: indicate truncation
+        }
+        this.loader.jobLog = log;
+      }
+    } catch (err) {
+      console.warn('Log fetch failed:', err);
+    }
+  }
+
+  async waitForResults(jobId: string, interval = 15000): Promise<void> {
+
+    let timeoutHandle: any; // store the timeout reference
+
+    const check = async () => {
+      try {
+
+        await this.fetchJobLog(jobId);
+
+        const res = await firstValueFrom(this.proteinService.getResultList(jobId));
+
+        if (res.status === 'completed') {
+
+          clearTimeout(timeoutHandle);
+          this.globalService.resultFiles = res.files;
+          this.toastr.success('Results ready!');
+
+          const pdbFiles = res.files.filter((f: string) => f.endsWith('.pdb'));
+          const datFiles = res.files.filter((f: string) => f.endsWith('.dat'));
+
+          // Wait for both PDBs and DATs to finish loading
+          await this.globalService.loadAllPdbsFromBackend(jobId, pdbFiles);
+          if (datFiles.length) await this.loadDatFilesAndPlot(jobId, datFiles);
+
+          this.loader.setLoading(false);
+          this.loader.jobLog = '';
+          return;
+        }
+
+        // Schedule next check
+        timeoutHandle = setTimeout(check, interval);
+
+      } catch (err: any) {
+        console.error('Polling error:', err);
+        clearTimeout(timeoutHandle); // also clear on error
+        this.loader.setLoading(false);
+        this.toastr.error('Error checking results');
+      }
+    };
+    check();
+  }
+  async loadDatFilesAndPlot(jobId: string, datFiles: string[]): Promise<void> {
+    const allData: any[] = [];
+
+    for (const file of datFiles) {
+      const text = await firstValueFrom(this.proteinService.getFileContent(jobId, file));
+      const parsed = this.globalService.parseFullDat(text, file);
+      allData.push(parsed);
+      const key = file.replace(/\.dat$/i, '');
+      this.globalService.parsedByFile[key] = parsed;
+    }
+
+    this.globalService.datMutations = Object.keys(this.globalService.parsedByFile);
+
+    // Build combined heatmap once (big overview)
+    const residues = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.residue))));
+    const mutants = Array.from(new Set(allData.flatMap(d => d.entries.map((e: any) => e.mutant))));
+    const z: number[][] = residues.map(() => Array(mutants.length).fill(NaN));
+
+    for (const d of allData) {
+      for (const e of d.entries) {
+        const y = residues.indexOf(e.residue);
+        const x = mutants.indexOf(e.mutant);
+        if (y !== -1 && x !== -1) z[y][x] = e.energy;
+      }
+    }
+  }
+}

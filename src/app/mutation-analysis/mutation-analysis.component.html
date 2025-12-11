@@ -1,0 +1,39 @@
+<div *ngIf="this.globalService.datMutations.length">
+    <div style="margin-top: 15px;">
+        <div class="has-text-centered">
+            <label class=" has-text-grey-light">Mutations:</label>
+            <div class="columns is-multiline is-centered is-variable is-1 is-vcentered" style="margin-top:10px;">
+                <div class="column is-narrow" *ngFor="let m of this.globalService.datMutations">
+                    <button class="button is-white"
+                        style="color: #363636;border: 1px solid rgb(120, 120, 120);margin:4px;"
+                        (click)="onSelectMutation(m)">
+                        {{ m }}
+                    </button>
+                </div>
+                <div class="column is-narrow">
+                    <button class="button is-white" style="color: #363636;border: 1px solid rgb(120, 120, 120);"
+                        (click)="onShowAllHeatmap()">
+                        <span class="icon" style="color: #363636;"><i class="fas fa-th"></i></span>
+                        <span>Show All</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div *ngIf="selectedMutation && selectedMutation!='All Mutations'" class="box"
+        style="background:white;  border:1px solid #ccc;border-radius: 10px; margin-top:20px;">
+        <div class="has-text-centered">
+            <label class="title is-5 has-text-grey">
+                DAT File Contents ({{ selectedMutation }}):
+            </label>
+        </div>
+        <pre class="content has-text-centered" style="font-size:1.5rem; 
+      background:transparent; border:none; max-height:500px; overflow:auto;"> {{ selectedMutationContent }}
+    </pre>
+    </div>
+
+    <div class="box" style="background:transparent; border:none; box-shadow:none;">
+        <div id="mutationHeatmapDiv" style="margin-top:10px;"></div>
+    </div>
+</div>
