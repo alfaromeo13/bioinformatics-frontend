@@ -220,6 +220,8 @@ export class GlobalService {
      * Applies default representation and triggers camera auto-zoom.
      */
     async loadAllPdbsFromBackend(jobId: string, pdbFiles: string[]): Promise<void> {
+        this.zipMode = false;
+        this.zipData = null;
         this.showViewer = true;
         await new Promise(r => setTimeout(r));
 
