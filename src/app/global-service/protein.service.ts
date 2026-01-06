@@ -8,7 +8,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 export class ProteinHttpService {
 
   /** Base URL of the backend API */
-  public baseUrl = 'http://localhost:5000';
+  public baseUrl = '212.235.192.125:3001';
 
   constructor(
     private http: HttpClient,
